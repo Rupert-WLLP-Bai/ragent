@@ -41,3 +41,5 @@ node_modules/
 dist/
 .vite/
 .env.local
+frontend/playwright-report/
+frontend/test-results/

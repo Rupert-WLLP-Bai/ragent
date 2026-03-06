@@ -89,7 +89,8 @@ async function readSseStream(response: Response, handlers: StreamHandlers, signa
     dataLines = [];
   };
 
-  while (true) {
+  let finished = false;
+  while (!finished) {
     if (signal?.aborted) {
       reader.cancel();
       break;
@@ -97,6 +98,7 @@ async function readSseStream(response: Response, handlers: StreamHandlers, signa
     const { value, done } = await reader.read();
     if (done) {
       dispatchEvent();
+      finished = true;
       break;
     }
     buffer += decoder.decode(value, { stream: true });

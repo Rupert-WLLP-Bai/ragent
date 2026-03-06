@@ -75,14 +75,14 @@ public class ConversationMessageServiceImpl implements ConversationMessageServic
         }
 
         boolean asc = order == null || order == ConversationMessageOrder.ASC;
-        List<ConversationMessageDO> records = conversationMessageMapper.selectList(
+        List<ConversationMessageDO> records = new ArrayList<>(conversationMessageMapper.selectList(
                 Wrappers.lambdaQuery(ConversationMessageDO.class)
                         .eq(ConversationMessageDO::getConversationId, conversationId)
                         .eq(ConversationMessageDO::getUserId, userId)
                         .eq(ConversationMessageDO::getDeleted, 0)
                         .orderBy(true, asc, ConversationMessageDO::getCreateTime)
                         .last(limit != null, "limit " + limit)
-        );
+        ));
         if (records == null || records.isEmpty()) {
             return List.of();
         }

@@ -45,10 +45,12 @@ import {
 } from "@/services/knowledgeService";
 import { Avatar } from "@/components/common/Avatar";
 
+type MenuIcon = typeof LayoutDashboard;
+
 type MenuChild = {
   path: string;
   label: string;
-  icon: any;
+  icon: MenuIcon;
   search?: string;
 };
 
@@ -56,7 +58,7 @@ type MenuItem = {
   id?: string;
   path: string;
   label: string;
-  icon: any;
+  icon: MenuIcon;
   search?: string;
   children?: MenuChild[];
 };
