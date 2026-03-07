@@ -40,7 +40,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
-
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -164,7 +164,61 @@ public class RetrievalEngine {
         if (CollUtil.isEmpty(stageIntentChunks)) {
             return;
         }
-        mergedIntentChunks.putAll(stageIntentChunks);
+        stageIntentChunks.forEach((intentId, stageChunks) -> mergedIntentChunks.merge(
+                intentId,
+                stageChunks,
+                this::appendDistinctChunks
+        ));
+    }
+
+    private List<RetrievedChunk> appendDistinctChunks(List<RetrievedChunk> existingChunks, List<RetrievedChunk> stageChunks) {
+        Map<String, RetrievedChunk> mergedByKey = new LinkedHashMap<>();
+        mergeChunkList(mergedByKey, existingChunks);
+        mergeChunkList(mergedByKey, stageChunks);
+        return List.copyOf(mergedByKey.values());
+    }
+
+    private void mergeChunkList(Map<String, RetrievedChunk> mergedByKey, List<RetrievedChunk> chunks) {
+        if (CollUtil.isEmpty(chunks)) {
+            return;
+        }
+        for (RetrievedChunk chunk : chunks) {
+            if (chunk == null) {
+                continue;
+            }
+            mergedByKey.merge(chunkKey(chunk), chunk, this::mergeChunk);
+        }
+    }
+
+    private RetrievedChunk mergeChunk(RetrievedChunk existing, RetrievedChunk incoming) {
+        RetrievedChunk preferred = compareChunkScore(incoming, existing) >= 0 ? incoming : existing;
+        Map<String, String> mergedProvenance = new LinkedHashMap<>();
+        if (existing.getProvenance() != null) {
+            mergedProvenance.putAll(existing.getProvenance());
+        }
+        if (incoming.getProvenance() != null) {
+            mergedProvenance.putAll(incoming.getProvenance());
+        }
+        return RetrievedChunk.builder()
+                .id(preferred.getId())
+                .text(preferred.getText())
+                .score(preferred.getScore())
+                .provenance(mergedProvenance)
+                .build();
+    }
+
+    private int compareChunkScore(RetrievedChunk left, RetrievedChunk right) {
+        return Float.compare(
+                Objects.requireNonNullElse(left.getScore(), Float.NEGATIVE_INFINITY),
+                Objects.requireNonNullElse(right.getScore(), Float.NEGATIVE_INFINITY)
+        );
+    }
+
+    private String chunkKey(RetrievedChunk chunk) {
+        if (StrUtil.isNotBlank(chunk.getId())) {
+            return chunk.getId();
+        }
+        return StrUtil.emptyIfNull(chunk.getText());
     }
 
     private List<NodeScore> selectMcpStageIntents(List<NodeScore> nodeScores) {

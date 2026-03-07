@@ -138,6 +138,39 @@ class RetrievalEngineTests {
         assertTrue(result.getKbContext().contains("formatted-kb-1"));
         assertTrue(result.getKbContext().contains("**子问题**：子问题二"));
         assertTrue(result.getKbContext().contains("formatted-kb-2"));
+        assertEquals(List.of("c1", "c2"), result.getIntentChunks().get("intent-employee").stream().map(RetrievedChunk::getId).toList());
+    }
+
+    @Test
+    void shouldMergeDuplicateIntentChunksAcrossSubQuestionsWithoutDroppingProvenance() {
+        Executor directExecutor = Runnable::run;
+        RetrievalEngine engine = new RetrievalEngine(
+                contextFormatter,
+                mcpParameterExtractor,
+                mcpToolRegistry,
+                multiChannelRetrievalEngine,
+                directExecutor,
+                directExecutor
+        );
+        NodeScore employeeIntent = kbIntent("intent-employee", "employee_manual");
+        SubQuestionIntent first = new SubQuestionIntent("子问题一", List.of(employeeIntent));
+        SubQuestionIntent second = new SubQuestionIntent("子问题二", List.of(employeeIntent));
+        RetrievedChunk firstChunk = chunk("shared", "片段一", Map.of("collection", "employee_manual", "origin-1", "subq-1"));
+        RetrievedChunk secondChunk = chunk("shared", "片段一", Map.of("collection", "employee_manual", "origin-2", "subq-2"));
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(first), 5))
+                .thenReturn(List.of(firstChunk));
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(second), 5))
+                .thenReturn(List.of(secondChunk));
+        when(contextFormatter.formatKbContext(anyList(), anyMap(), anyInt()))
+                .thenReturn("formatted-kb-1", "formatted-kb-2");
+
+        RetrievalContext result = engine.retrieve(List.of(first, second), 5);
+
+        assertEquals(1, result.getIntentChunks().get("intent-employee").size());
+        RetrievedChunk merged = result.getIntentChunks().get("intent-employee").get(0);
+        assertEquals("employee_manual", merged.getProvenance().get("collection"));
+        assertEquals("subq-1", merged.getProvenance().get("origin-1"));
+        assertEquals("subq-2", merged.getProvenance().get("origin-2"));
     }
 
     private static NodeScore kbIntent(String id, String collectionName) {
@@ -151,11 +184,15 @@ class RetrievalEngineTests {
     }
 
     private static RetrievedChunk chunk(String id, String text, String collection) {
+        return chunk(id, text, Map.of("collection", collection));
+    }
+
+    private static RetrievedChunk chunk(String id, String text, Map<String, String> provenance) {
         return RetrievedChunk.builder()
                 .id(id)
                 .text(text)
                 .score(0.8f)
-                .provenance(Map.of("collection", collection))
+                .provenance(provenance)
                 .build();
     }
 }

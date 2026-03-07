@@ -12,6 +12,8 @@
 - Added aspect tests covering deferred trace success on SSE completion and error finalization on SSE failure callbacks.
 - Split `RetrievalEngine` one step further toward explicit stages by separating per-subquestion KB retrieval, MCP execution, and final context merge helpers without broad request-path churn.
 - Added retrieval tests covering the explicit merge stage so multi-subquestion KB context composition remains stable through the refactor.
+- Fixed `RetrievalEngine` multi-subquestion intent chunk merging so same-intent results append instead of overwrite across subquestions, while duplicate chunks still merge and retain provenance.
+- Added focused retrieval tests covering cross-subquestion per-intent append behavior and provenance-preserving duplicate chunk merge.
 - Added route-level lazy loading for admin routes so dashboard, knowledge, intent, ingestion, traces, settings, sample question, and user screens load on demand behind router suspense fallbacks.
 - Narrowed shell Zustand subscriptions in the chat header and sidebar so layout chrome listens only to the auth and chat slices it renders instead of subscribing to whole stores.
 - Moved low-level frontend API auth side effects upward by replacing axios interceptor toast/redirect logic with an unauthorized callback, handling session expiry in auth store state, and triggering login/logout toasts plus navigation at app/page boundaries.
