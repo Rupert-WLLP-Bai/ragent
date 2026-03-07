@@ -20,5 +20,7 @@
 - Split DashboardPage's right-rail AI performance and operational insight widgets into a dedicated `DashboardSidebar` component so the admin dashboard page keeps data orchestration while the sidebar presentation lives in a focused module.
 - Added a deterministic typed fast path for simple MCP parameter schemas so obvious string/boolean/number/enum inputs can bypass LLM extraction, while ambiguous or incomplete cases still fall back to the existing LLM path.
 - Added focused MCP extraction tests covering simple typed fast-path hits, enum extraction, and backward-compatible LLM fallback for incomplete required parameters.
+- Added snapshot reuse inside `DefaultIntentClassifier` so unchanged intent trees can reuse flattened nodes, leaf lists, ID maps, and rendered prompts while still re-reading the latest tree roots on each classification call.
+- Added focused intent-classifier tests covering prompt reuse when the tree snapshot is unchanged and prompt rebuild when the tree snapshot changes.
 - Added a shared `AdminPageShell` with reusable list-state and pagination helpers, applied it to `UserListPage` and `SampleQuestionPage`, and lightly aligned `SystemSettingsPage` loading/empty presentation with the same admin shell.
 - Verified the frontend with lint, unit tests, coverage, production build, and Playwright e2e after the routing, shell subscription, API side-effect boundary, dashboard structure, and admin shell convergence changes.
