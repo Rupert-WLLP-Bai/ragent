@@ -101,4 +101,25 @@ class LLMMCPParameterExtractorTests {
         assertTrue(result.containsKey("status"));
         verify(llmService, never()).chat(org.mockito.ArgumentMatchers.any(ChatRequest.class));
     }
+
+    @Test
+    void shouldFallBackToLlmWhenMultipleNumericParametersWouldBeAmbiguous() {
+        LLMMCPParameterExtractor extractor = new LLMMCPParameterExtractor(llmService, promptTemplateLoader);
+        MCPTool tool = MCPTool.builder()
+                .toolId("approval_window")
+                .description("查询审批窗口")
+                .parameters(Map.of(
+                        "days", MCPTool.ParameterDef.builder().type("integer").required(true).build(),
+                        "limit", MCPTool.ParameterDef.builder().type("integer").required(true).build()
+                ))
+                .build();
+        when(promptTemplateLoader.load(anyString())).thenReturn("extract prompt");
+        when(llmService.chat(any(ChatRequest.class))).thenReturn("{\"days\":7,\"limit\":3}");
+
+        Map<String, Object> result = extractor.extractParameters("查最近 7 天前 3 条审批", tool);
+
+        assertEquals(7, result.get("days"));
+        assertEquals(3, result.get("limit"));
+        verify(llmService).chat(any(ChatRequest.class));
+    }
 }
