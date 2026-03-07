@@ -5,8 +5,8 @@ import { toast } from "sonner";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Avatar } from "@/components/common/Avatar";
+import { AdminListCard, AdminPageShell, AdminPagination } from "@/components/admin/AdminPageShell";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -153,13 +153,11 @@ export function UserListPage() {
   const isProtectedAdmin = (user: UserItem) => user.username === "admin";
 
   return (
-    <div className="admin-page">
-      <div className="admin-page-header">
-        <div>
-          <h1 className="admin-page-title">用户管理</h1>
-          <p className="admin-page-subtitle">管理后台账号与角色权限</p>
-        </div>
-        <div className="admin-page-actions">
+    <AdminPageShell
+      title="用户管理"
+      subtitle="管理后台账号与角色权限"
+      actions={
+        <>
           <Input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
@@ -170,90 +168,75 @@ export function UserListPage() {
             搜索
           </Button>
           <Button variant="outline" onClick={handleRefresh}>
-            <RefreshCw className="w-4 h-4 mr-2" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             刷新
           </Button>
           <Button className="admin-primary-gradient" onClick={openCreateDialog}>
-            <UserPlus className="w-4 h-4 mr-2" />
+            <UserPlus className="mr-2 h-4 w-4" />
             新增用户
           </Button>
-        </div>
-      </div>
-
-      <Card>
-        <CardContent className="pt-6">
-          {loading ? (
-            <div className="text-center py-8 text-muted-foreground">加载中...</div>
-          ) : users.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">暂无用户</div>
-          ) : (
-            <Table className="min-w-[860px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[240px]">用户</TableHead>
-                  <TableHead className="w-[140px]">角色</TableHead>
-                  <TableHead className="w-[180px]">创建时间</TableHead>
-                  <TableHead className="w-[180px]">更新时间</TableHead>
-                  <TableHead className="w-[160px] text-left">操作</TableHead>
+        </>
+      }
+    >
+      <AdminListCard loading={loading} isEmpty={users.length === 0} emptyLabel="暂无用户">
+        <Table className="min-w-[860px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[240px]">用户</TableHead>
+              <TableHead className="w-[140px]">角色</TableHead>
+              <TableHead className="w-[180px]">创建时间</TableHead>
+              <TableHead className="w-[180px]">更新时间</TableHead>
+              <TableHead className="w-[160px] text-left">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {users.map((user) => {
+              const isProtected = isProtectedAdmin(user);
+              const roleLabel = user.role === "admin" ? "管理员" : "成员";
+              return (
+                <TableRow key={user.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      <Avatar
+                        name={user.username || "用户"}
+                        src={user.avatar?.trim() || undefined}
+                        className="h-9 w-9 border-slate-200 bg-indigo-50 text-xs font-semibold text-indigo-600"
+                      />
+                      <div>
+                        <div className="font-medium text-slate-900">{user.username || "-"}</div>
+                        {isProtected ? <div className="text-xs text-slate-400">默认管理员</div> : null}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={user.role === "admin" ? "default" : "secondary"}>{roleLabel}</Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(user.createTime)}</TableCell>
+                  <TableCell className="text-muted-foreground">{formatDate(user.updateTime)}</TableCell>
+                  <TableCell className="text-center">
+                    <div className="flex justify-center gap-2">
+                      <Button variant="outline" size="sm" disabled={isProtected} onClick={() => openEditDialog(user)}>
+                        <Pencil className="mr-0.5 h-4 w-4" />
+                        编辑
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        disabled={isProtected}
+                        onClick={() => setDeleteTarget(user)}
+                      >
+                        <Trash2 className="mr-0.5 h-4 w-4" />
+                        删除
+                      </Button>
+                    </div>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {users.map((user) => {
-                  const isProtected = isProtectedAdmin(user);
-                  const roleLabel = user.role === "admin" ? "管理员" : "成员";
-                  return (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <Avatar
-                            name={user.username || "用户"}
-                            src={user.avatar?.trim() || undefined}
-                            className="h-9 w-9 border-slate-200 bg-indigo-50 text-xs font-semibold text-indigo-600"
-                          />
-                          <div>
-                            <div className="font-medium text-slate-900">{user.username || "-"}</div>
-                            {isProtected ? (
-                              <div className="text-xs text-slate-400">默认管理员</div>
-                            ) : null}
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={user.role === "admin" ? "default" : "secondary"}>{roleLabel}</Badge>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{formatDate(user.createTime)}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatDate(user.updateTime)}</TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex justify-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={isProtected}
-                            onClick={() => openEditDialog(user)}
-                          >
-                            <Pencil className="w-4 h-4 mr-0.5" />
-                            编辑
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            disabled={isProtected}
-                            onClick={() => setDeleteTarget(user)}
-                          >
-                            <Trash2 className="w-4 h-4 mr-0.5" />
-                            删除
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </AdminListCard>
 
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
         <AlertDialogContent>
@@ -344,31 +327,14 @@ export function UserListPage() {
       </Dialog>
 
       {pageData ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
-          <span>共 {pageData.total} 条</span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPageNo((prev) => Math.max(1, prev - 1))}
-              disabled={pageData.current <= 1}
-            >
-              上一页
-            </Button>
-            <span>
-              {pageData.current} / {pageData.pages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPageNo((prev) => Math.min(pageData.pages || 1, prev + 1))}
-              disabled={pageData.current >= pageData.pages}
-            >
-              下一页
-            </Button>
-          </div>
-        </div>
+        <AdminPagination
+          total={pageData.total}
+          current={pageData.current}
+          pages={pageData.pages}
+          onPrev={() => setPageNo((prev) => Math.max(1, prev - 1))}
+          onNext={() => setPageNo((prev) => Math.min(pageData.pages || 1, prev + 1))}
+        />
       ) : null}
-    </div>
+    </AdminPageShell>
   );
 }

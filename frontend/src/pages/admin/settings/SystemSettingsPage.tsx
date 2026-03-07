@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { AdminListCard, AdminPageShell } from "@/components/admin/AdminPageShell";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -45,17 +46,17 @@ export function SystemSettingsPage() {
 
   if (loading) {
     return (
-      <div className="admin-page">
-        <div className="text-sm text-muted-foreground">加载中...</div>
-      </div>
+      <AdminPageShell title="系统配置" subtitle="只读展示当前 application 配置">
+        <AdminListCard loading isEmpty={false} emptyLabel="" />
+      </AdminPageShell>
     );
   }
 
   if (!settings) {
     return (
-      <div className="admin-page">
-        <div className="text-sm text-muted-foreground">暂无可展示的配置</div>
-      </div>
+      <AdminPageShell title="系统配置" subtitle="只读展示当前 application 配置">
+        <AdminListCard loading={false} isEmpty emptyLabel="暂无可展示的配置" />
+      </AdminPageShell>
     );
   }
 
@@ -63,14 +64,7 @@ export function SystemSettingsPage() {
   const providers = Object.entries(ai.providers || {});
 
   return (
-    <div className="admin-page">
-      <div className="admin-page-header">
-        <div>
-          <h1 className="admin-page-title">系统配置</h1>
-          <p className="admin-page-subtitle">只读展示当前 application 配置</p>
-        </div>
-      </div>
-
+    <AdminPageShell title="系统配置" subtitle="只读展示当前 application 配置">
       <Card>
         <CardHeader>
           <CardTitle>RAG 默认配置</CardTitle>
@@ -282,6 +276,6 @@ export function SystemSettingsPage() {
           </Table>
         </CardContent>
       </Card>
-    </div>
+    </AdminPageShell>
   );
 }

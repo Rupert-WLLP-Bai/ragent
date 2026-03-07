@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
-import { Card, CardContent } from "@/components/ui/card";
+import { AdminListCard, AdminPageShell, AdminPagination } from "@/components/admin/AdminPageShell";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -162,13 +162,11 @@ export function SampleQuestionPage() {
   const records = pageData?.records || [];
 
   return (
-    <div className="admin-page">
-      <div className="admin-page-header">
-        <div>
-          <h1 className="admin-page-title">示例问题管理</h1>
-          <p className="admin-page-subtitle">配置欢迎页的示例问题与推荐问法</p>
-        </div>
-        <div className="admin-page-actions">
+    <AdminPageShell
+      title="示例问题管理"
+      subtitle="配置欢迎页的示例问题与推荐问法"
+      actions={
+        <>
           <Input
             value={searchKeyword}
             onChange={(event) => setSearchKeyword(event.target.value)}
@@ -179,100 +177,75 @@ export function SampleQuestionPage() {
             搜索
           </Button>
           <Button variant="outline" onClick={handleRefresh}>
-            <RefreshCw className="w-4 h-4 mr-2" />
+            <RefreshCw className="mr-2 h-4 w-4" />
             刷新
           </Button>
           <Button className="admin-primary-gradient" onClick={openCreateDialog}>
-            <Plus className="w-4 h-4 mr-2" />
+            <Plus className="mr-2 h-4 w-4" />
             新增示例
           </Button>
-        </div>
-      </div>
-
-      <Card>
-        <CardContent className="pt-6">
-          {loading ? (
-            <div className="text-center py-8 text-muted-foreground">加载中...</div>
-          ) : records.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              暂无示例问题，点击上方按钮新增
-            </div>
-          ) : (
-            <Table className="min-w-[860px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[180px]">标题</TableHead>
-                  <TableHead className="w-[220px]">描述</TableHead>
-                  <TableHead>示例问题</TableHead>
-                  <TableHead className="w-[170px]">更新时间</TableHead>
-                  <TableHead className="w-[140px] text-left">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {records.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium max-w-[160px] truncate" title={item.title || ""}>
-                      {item.title || "-"}
-                    </TableCell>
-                    <TableCell className="max-w-[200px] truncate" title={item.description || ""}>
-                      {item.description || "-"}
-                    </TableCell>
-                    <TableCell className="max-w-[360px] truncate" title={item.question}>
-                      {item.question}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {formatDate(item.updateTime || item.createTime)}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" size="sm" onClick={() => openEditDialog(item)}>
-                          <Pencil className="w-4 h-4 mr-0.5" />
-                          编辑
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => setDeleteTarget(item)}
-                        >
-                          <Trash2 className="w-4 h-4 mr-0.5" />
-                          删除
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+        </>
+      }
+    >
+      <AdminListCard
+        loading={loading}
+        isEmpty={records.length === 0}
+        emptyLabel="暂无示例问题，点击上方按钮新增"
+      >
+        <Table className="min-w-[860px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-[180px]">标题</TableHead>
+              <TableHead className="w-[220px]">描述</TableHead>
+              <TableHead>示例问题</TableHead>
+              <TableHead className="w-[170px]">更新时间</TableHead>
+              <TableHead className="w-[140px] text-left">操作</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {records.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell className="max-w-[160px] truncate font-medium" title={item.title || ""}>
+                  {item.title || "-"}
+                </TableCell>
+                <TableCell className="max-w-[200px] truncate" title={item.description || ""}>
+                  {item.description || "-"}
+                </TableCell>
+                <TableCell className="max-w-[360px] truncate" title={item.question}>
+                  {item.question}
+                </TableCell>
+                <TableCell className="text-muted-foreground">{formatDate(item.updateTime || item.createTime)}</TableCell>
+                <TableCell className="text-center">
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEditDialog(item)}>
+                      <Pencil className="mr-0.5 h-4 w-4" />
+                      编辑
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTarget(item)}
+                    >
+                      <Trash2 className="mr-0.5 h-4 w-4" />
+                      删除
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </AdminListCard>
 
       {pageData ? (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
-          <span>共 {pageData.total} 条</span>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPageNo((prev) => Math.max(1, prev - 1))}
-              disabled={pageData.current <= 1}
-            >
-              上一页
-            </Button>
-            <span>
-              {pageData.current} / {pageData.pages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPageNo((prev) => Math.min(pageData.pages || 1, prev + 1))}
-              disabled={pageData.current >= pageData.pages}
-            >
-              下一页
-            </Button>
-          </div>
-        </div>
+        <AdminPagination
+          total={pageData.total}
+          current={pageData.current}
+          pages={pageData.pages}
+          onPrev={() => setPageNo((prev) => Math.max(1, prev - 1))}
+          onNext={() => setPageNo((prev) => Math.min(pageData.pages || 1, prev + 1))}
+        />
       ) : null}
 
       <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
@@ -341,6 +314,6 @@ export function SampleQuestionPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </AdminPageShell>
   );
 }
