@@ -60,6 +60,11 @@ public class SearchContext {
     private int topK;
 
     /**
+     * 当前请求复用的查询向量
+     */
+    private float[] queryVector;
+
+    /**
      * 扩展元数据
      */
     @Builder.Default

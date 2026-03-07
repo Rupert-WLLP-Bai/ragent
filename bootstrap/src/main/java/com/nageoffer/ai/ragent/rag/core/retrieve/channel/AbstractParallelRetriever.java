@@ -61,6 +61,13 @@ public abstract class AbstractParallelRetriever<T> {
     public final List<RetrievedChunk> executeParallelRetrieval(String question,
                                                                List<T> targets,
                                                                int topK) {
+        return executeParallelRetrieval(question, targets, topK, null);
+    }
+
+    public final List<RetrievedChunk> executeParallelRetrieval(String question,
+                                                               List<T> targets,
+                                                               int topK,
+                                                               float[] queryVector) {
         // 1. 创建 Future 列表
         record RetrievalFuture<T>(T target, CompletableFuture<List<RetrievedChunk>> future) {
         }
@@ -68,7 +75,7 @@ public abstract class AbstractParallelRetriever<T> {
         List<RetrievalFuture<T>> futures = targets.stream()
                 .map(target -> {
                     CompletableFuture<List<RetrievedChunk>> future = CompletableFuture.supplyAsync(
-                            () -> createRetrievalTask(question, target, topK),
+                            () -> createRetrievalTask(question, target, topK, queryVector),
                             executor
                     );
                     return new RetrievalFuture<>(target, future);
@@ -107,7 +114,14 @@ public abstract class AbstractParallelRetriever<T> {
      * @param topK     TopK
      * @return 检索结果列表
      */
-    protected abstract List<RetrievedChunk> createRetrievalTask(String question, T target, int topK);
+    protected List<RetrievedChunk> createRetrievalTask(String question, T target, int topK) {
+        return createRetrievalTask(question, target, topK, null);
+    }
+
+    protected abstract List<RetrievedChunk> createRetrievalTask(String question,
+                                                                T target,
+                                                                int topK,
+                                                                float[] queryVector);
 
     /**
      * 获取目标标识（用于日志）

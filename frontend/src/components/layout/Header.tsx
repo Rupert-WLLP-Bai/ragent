@@ -1,5 +1,6 @@
 import * as React from "react";
 import { Github, Menu } from "lucide-react";
+import { shallow } from "zustand/shallow";
 
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chatStore";
@@ -9,12 +10,18 @@ interface HeaderProps {
 }
 
 export function Header({ onToggleSidebar }: HeaderProps) {
-  const { currentSessionId, sessions } = useChatStore();
-  const [starCount, setStarCount] = React.useState<number | null>(null);
-  const currentSession = React.useMemo(
-    () => sessions.find((session) => session.id === currentSessionId),
-    [sessions, currentSessionId]
+  const { currentSessionId, currentSessionTitle } = useChatStore(
+    React.useCallback(
+      (state) => ({
+        currentSessionId: state.currentSessionId,
+        currentSessionTitle:
+          state.sessions.find((session) => session.id === state.currentSessionId)?.title || "新对话"
+      }),
+      []
+    ),
+    shallow
   );
+  const [starCount, setStarCount] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     let active = true;
@@ -57,7 +64,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
             <Menu className="h-5 w-5" />
           </Button>
           <p className="text-base font-medium text-gray-900">
-            {currentSession?.title || "新对话"}
+            {currentSessionId ? currentSessionTitle : "新对话"}
           </p>
         </div>
         <div className="flex items-center gap-2">

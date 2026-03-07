@@ -14,6 +14,7 @@ import {
   Trash2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { shallow } from "zustand/shallow";
 
 import {
   AlertDialog,
@@ -52,9 +53,31 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     renameSession,
     selectSession,
     fetchSessions
-  } = useChatStore();
+  } = useChatStore(
+    React.useCallback(
+      (state) => ({
+        sessions: state.sessions,
+        currentSessionId: state.currentSessionId,
+        isLoading: state.isLoading,
+        sessionsLoaded: state.sessionsLoaded,
+        createSession: state.createSession,
+        deleteSession: state.deleteSession,
+        renameSession: state.renameSession,
+        selectSession: state.selectSession,
+        fetchSessions: state.fetchSessions
+      }),
+      []
+    ),
+    shallow
+  );
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const { user, logout } = useAuthStore(
+    React.useCallback(
+      (state) => ({ user: state.user, logout: state.logout }),
+      []
+    ),
+    shallow
+  );
   const [query, setQuery] = React.useState("");
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState("");

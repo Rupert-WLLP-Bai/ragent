@@ -31,8 +31,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Executor;
 
@@ -107,8 +109,8 @@ public class VectorGlobalSearchChannel implements SearchChannel {
         try {
             log.info("执行向量全局检索，问题：{}", context.getMainQuestion());
 
-            // 获取所有 KB 类型的 collection
-            List<String> collections = getAllKBCollections();
+            // 获取受限的全局兜底 collection 列表
+            List<String> collections = resolveFallbackCollections(context);
 
             if (collections.isEmpty()) {
                 log.warn("未找到任何 KB collection，跳过全局检索");
@@ -125,6 +127,7 @@ public class VectorGlobalSearchChannel implements SearchChannel {
             int topKMultiplier = properties.getChannels().getVectorGlobal().getTopKMultiplier();
             List<RetrievedChunk> allChunks = retrieveFromAllCollections(
                     context.getMainQuestion(),
+                    context.getQueryVector(),
                     collections,
                     context.getTopK() * topKMultiplier
             );
@@ -154,16 +157,53 @@ public class VectorGlobalSearchChannel implements SearchChannel {
     }
 
     /**
+     * 解析全局兜底 collection 列表
+     */
+    private List<String> resolveFallbackCollections(SearchContext context) {
+        SearchChannelProperties.VectorGlobal vectorGlobal = properties.getChannels().getVectorGlobal();
+        int maxCollections = Math.max(1, vectorGlobal.getMaxCollections());
+
+        LinkedHashSet<String> prioritizedCollections = new LinkedHashSet<>();
+        List<String> intentCollections = vectorGlobal.isPreferIntentCollections()
+                ? extractIntentCollections(context).stream().limit(maxCollections).toList()
+                : List.of();
+
+        List<String> availableCollections = getAllKBCollections();
+        Set<String> availableSet = new LinkedHashSet<>(availableCollections);
+
+        for (String intentCollection : intentCollections) {
+            if (availableSet.contains(intentCollection)) {
+                prioritizedCollections.add(intentCollection);
+            }
+        }
+
+        if (prioritizedCollections.size() < maxCollections) {
+            availableCollections.stream()
+                    .filter(Objects::nonNull)
+                    .filter(collection -> !collection.isBlank())
+                    .filter(collection -> !prioritizedCollections.contains(collection))
+                    .forEach(prioritizedCollections::add);
+        }
+
+        List<String> boundedCollections = prioritizedCollections.stream()
+                .limit(maxCollections)
+                .toList();
+        log.info("全局检索 fan-out 已限制为 {}/{} 个 collection: {}",
+                boundedCollections.size(), maxCollections, boundedCollections);
+        return boundedCollections;
+    }
+
+    /**
      * 获取所有 KB 类型的 collection
      */
     private List<String> getAllKBCollections() {
-        Set<String> collections = new HashSet<>();
+        Set<String> collections = new LinkedHashSet<>();
 
         // 从知识库表获取全量 collection（全局检索兜底）
         List<KnowledgeBaseDO> kbList = knowledgeBaseMapper.selectList(
-                Wrappers.lambdaQuery(KnowledgeBaseDO.class)
-                        .select(KnowledgeBaseDO::getCollectionName)
-                        .eq(KnowledgeBaseDO::getDeleted, 0)
+                Wrappers.query(new KnowledgeBaseDO())
+                        .select("collection_name")
+                        .eq("deleted", 0)
         );
         for (KnowledgeBaseDO kb : kbList) {
             String collectionName = kb.getCollectionName();
@@ -175,14 +215,34 @@ public class VectorGlobalSearchChannel implements SearchChannel {
         return new ArrayList<>(collections);
     }
 
+    private List<String> extractIntentCollections(SearchContext context) {
+        if (context == null || CollUtil.isEmpty(context.getIntents())) {
+            return List.of();
+        }
+
+        return context.getIntents().stream()
+                .flatMap(intent -> intent.nodeScores().stream())
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparingDouble(NodeScore::getScore).reversed())
+                .map(NodeScore::getNode)
+                .filter(Objects::nonNull)
+                .filter(node -> node.isKB())
+                .map(node -> node.getCollectionName())
+                .filter(Objects::nonNull)
+                .filter(collection -> !collection.isBlank())
+                .distinct()
+                .toList();
+    }
+
     /**
      * 并行在所有 collection 中检索
      */
     private List<RetrievedChunk> retrieveFromAllCollections(String question,
+                                                            float[] queryVector,
                                                             List<String> collections,
                                                             int topK) {
         // 使用模板方法执行并行检索
-        return parallelRetriever.executeParallelRetrieval(question, collections, topK);
+        return parallelRetriever.executeParallelRetrieval(question, collections, topK, queryVector);
     }
 
     @Override

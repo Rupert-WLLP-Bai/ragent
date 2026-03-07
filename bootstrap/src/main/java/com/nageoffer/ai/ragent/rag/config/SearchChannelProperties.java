@@ -67,6 +67,16 @@ public class SearchChannelProperties {
          * 全局检索时召回更多候选，后续通过 Rerank 筛选
          */
         private int topKMultiplier = 3;
+
+        /**
+         * 全局兜底时允许并行搜索的最大知识库数量
+         */
+        private int maxCollections = 8;
+
+        /**
+         * 是否优先保留低置信度意图关联的知识库，再补齐全局候选
+         */
+        private boolean preferIntentCollections = true;
     }
 
     @Data

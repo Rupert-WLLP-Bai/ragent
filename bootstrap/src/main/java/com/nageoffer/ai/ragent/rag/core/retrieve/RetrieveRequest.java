@@ -64,5 +64,11 @@ public class RetrieveRequest {
      * {"biz_type": "ATTENDANCE", "env": "TEST"}
      */
     private Map<String, Object> metadataFilters;
+
+    /**
+     * 已经计算好的查询向量
+     * 为空时由检索服务内部计算
+     */
+    private float[] queryVector;
 }
 

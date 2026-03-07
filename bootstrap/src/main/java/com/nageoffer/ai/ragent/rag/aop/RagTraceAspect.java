@@ -27,6 +27,7 @@ import com.nageoffer.ai.ragent.rag.config.RagTraceProperties;
 import com.nageoffer.ai.ragent.rag.dao.entity.RagTraceNodeDO;
 import com.nageoffer.ai.ragent.rag.dao.entity.RagTraceRunDO;
 import com.nageoffer.ai.ragent.rag.service.RagTraceRecordService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -36,6 +37,8 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.lang.reflect.Method;
 import java.util.Date;
@@ -53,6 +56,7 @@ public class RagTraceAspect {
     private static final String STATUS_RUNNING = "RUNNING";
     private static final String STATUS_SUCCESS = "SUCCESS";
     private static final String STATUS_ERROR = "ERROR";
+    private static final String TRACE_ID_HEADER = "X-Trace-Id";
 
     private final RagTraceRecordService traceRecordService;
     private final RagTraceProperties traceProperties;
@@ -90,6 +94,7 @@ public class RagTraceAspect {
                 .build());
 
         RagTraceContext.setTraceId(traceId);
+        bindTraceIdHeader(traceId);
         try {
             Object result = joinPoint.proceed();
             traceRecordService.finishRun(
@@ -191,6 +196,18 @@ public class RagTraceAspect {
             return String.valueOf(arg);
         }
         return null;
+    }
+
+    private void bindTraceIdHeader(String traceId) {
+        ServletRequestAttributes attributes = (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+        if (attributes == null) {
+            return;
+        }
+        HttpServletResponse response = attributes.getResponse();
+        if (response != null) {
+            response.setHeader(TRACE_ID_HEADER, traceId);
+        }
+        attributes.getRequest().setAttribute(TRACE_ID_HEADER, traceId);
     }
 
     private String truncateError(Throwable throwable) {

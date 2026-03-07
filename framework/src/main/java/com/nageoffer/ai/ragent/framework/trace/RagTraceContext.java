@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.framework.trace;
 
 import com.alibaba.ttl.TransmittableThreadLocal;
+import org.slf4j.MDC;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -27,6 +28,8 @@ import java.util.Deque;
  * 使用 TTL 在异步线程池中透传 traceId 与节点栈
  */
 public final class RagTraceContext {
+
+    private static final String MDC_TRACE_ID_KEY = "traceId";
 
     private static final TransmittableThreadLocal<String> TRACE_ID = new TransmittableThreadLocal<>();
     private static final TransmittableThreadLocal<String> TASK_ID = new TransmittableThreadLocal<>();
@@ -41,6 +44,11 @@ public final class RagTraceContext {
 
     public static void setTraceId(String traceId) {
         TRACE_ID.set(traceId);
+        if (traceId == null) {
+            MDC.remove(MDC_TRACE_ID_KEY);
+            return;
+        }
+        MDC.put(MDC_TRACE_ID_KEY, traceId);
     }
 
     public static String getTaskId() {
@@ -85,5 +93,6 @@ public final class RagTraceContext {
         TRACE_ID.remove();
         TASK_ID.remove();
         NODE_STACK.remove();
+        MDC.remove(MDC_TRACE_ID_KEY);
     }
 }

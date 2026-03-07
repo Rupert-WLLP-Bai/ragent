@@ -18,6 +18,8 @@
 package com.nageoffer.ai.ragent.rag.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -62,5 +64,27 @@ public class RestFSS3Config {
                 .forcePathStyle(true)
                 .build();
         return s3;
+    }
+
+    @Bean
+    public HealthIndicator rustfsHealthIndicator(S3Client s3Client,
+                                                 @Value("${rustfs.health-bucket:}") String healthBucket) {
+        return () -> {
+            if (healthBucket == null || healthBucket.isBlank()) {
+                return Health.unknown()
+                        .withDetail("reason", "rustfs.health-bucket not configured")
+                        .build();
+            }
+            try {
+                s3Client.headBucket(builder -> builder.bucket(healthBucket));
+                return Health.up()
+                        .withDetail("bucket", healthBucket)
+                        .build();
+            } catch (Exception ex) {
+                return Health.down(ex)
+                        .withDetail("bucket", healthBucket)
+                        .build();
+            }
+        };
     }
 }

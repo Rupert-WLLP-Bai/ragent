@@ -1,0 +1,12 @@
+# CHANGELOG
+
+## 2026-03-07
+
+### In progress
+- Added request-scope query embedding reuse in backend retrieval so one normalized query vector can be shared across repeated intent-directed and vector-global retrieval branches during a single request.
+- Added bounded and configurable vector-global fallback fan-out with `rag.search.channels.vector-global.max-collections` and `prefer-intent-collections`, keeping low-confidence intent collections prioritized before broader fallback expansion.
+- Added backend retrieval tests covering query-vector reuse, bounded fallback fan-out ordering constrained by known KB collections, DB-backed fallback budget fill, and retriever behavior when a precomputed query vector is supplied.
+- Verified the bootstrap backend module with targeted retrieval tests and a compile pass for this change set.
+- Added route-level lazy loading for admin routes so dashboard, knowledge, intent, ingestion, traces, settings, sample question, and user screens load on demand behind router suspense fallbacks.
+- Narrowed shell Zustand subscriptions in the chat header and sidebar so layout chrome listens only to the auth and chat slices it renders instead of subscribing to whole stores.
+- Verified the frontend with lint, unit tests, coverage, production build, and Playwright e2e after the routing and shell subscription changes.
