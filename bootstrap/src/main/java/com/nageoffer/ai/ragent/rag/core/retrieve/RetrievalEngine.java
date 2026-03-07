@@ -196,32 +196,49 @@ public class RetrievalEngine {
     }
 
     private KbResult retrieveAndRerank(SubQuestionIntent intent, List<NodeScore> kbIntents, int topK) {
-        // 使用多通道检索引擎（是否启用全局检索由置信度阈值决定）
-        List<SubQuestionIntent> subIntents = List.of(intent);
-        List<RetrievedChunk> chunks = multiChannelRetrievalEngine.retrieveKnowledgeChannels(subIntents, topK);
-
+        List<RetrievedChunk> chunks = executeKnowledgeRetrieval(intent, topK);
         if (CollUtil.isEmpty(chunks)) {
             return KbResult.empty();
         }
 
-        // 按意图节点分组（用于格式化上下文）
-        Map<String, List<RetrievedChunk>> intentChunks = new ConcurrentHashMap<>();
-
-        // 如果有意图识别结果，按意图节点 ID 分组
-        if (CollUtil.isNotEmpty(kbIntents)) {
-            // 将所有 chunks 按意图节点 ID 分配
-            // 注意：多通道检索返回的 chunks 无法精确对应到某个意图节点
-            // 所以我们将所有 chunks 分配给每个意图节点
-            for (NodeScore ns : kbIntents) {
-                intentChunks.put(ns.getNode().getId(), chunks);
-            }
-        } else {
-            // 如果没有意图识别结果，使用特殊 key
-            intentChunks.put(MULTI_CHANNEL_KEY, chunks);
-        }
-
+        Map<String, List<RetrievedChunk>> intentChunks = groupChunksByIntent(kbIntents, chunks);
         String groupedContext = contextFormatter.formatKbContext(kbIntents, intentChunks, topK);
         return new KbResult(groupedContext, intentChunks);
+    }
+
+    private List<RetrievedChunk> executeKnowledgeRetrieval(SubQuestionIntent intent, int topK) {
+        return multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(intent), topK);
+    }
+
+    private Map<String, List<RetrievedChunk>> groupChunksByIntent(List<NodeScore> kbIntents, List<RetrievedChunk> chunks) {
+        if (CollUtil.isEmpty(kbIntents)) {
+            return Map.of(MULTI_CHANNEL_KEY, chunks);
+        }
+
+        Map<String, List<RetrievedChunk>> intentChunks = new ConcurrentHashMap<>();
+        Map<String, List<RetrievedChunk>> chunksByCollection = new ConcurrentHashMap<>();
+        for (RetrievedChunk chunk : chunks) {
+            if (chunk == null || chunk.getProvenance() == null) {
+                continue;
+            }
+            String collection = chunk.getProvenance().get("collection");
+            if (StrUtil.isBlank(collection)) {
+                continue;
+            }
+            chunksByCollection.computeIfAbsent(collection, key -> new java.util.ArrayList<>()).add(chunk);
+        }
+
+        for (NodeScore ns : kbIntents) {
+            IntentNode node = ns.getNode();
+            if (node == null || StrUtil.isBlank(node.getId())) {
+                continue;
+            }
+            List<RetrievedChunk> matchedChunks = StrUtil.isNotBlank(node.getCollectionName())
+                    ? chunksByCollection.get(node.getCollectionName())
+                    : null;
+            intentChunks.put(node.getId(), CollUtil.isNotEmpty(matchedChunks) ? matchedChunks : chunks);
+        }
+        return intentChunks;
     }
 
     private List<MCPResponse> executeMcpTools(String question, List<NodeScore> mcpIntentScores) {

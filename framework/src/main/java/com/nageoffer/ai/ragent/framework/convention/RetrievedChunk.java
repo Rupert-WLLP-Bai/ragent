@@ -17,10 +17,12 @@
 
 package com.nageoffer.ai.ragent.framework.convention;
 
-import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * RAG 检索命中结果
@@ -30,7 +32,6 @@ import lombok.NoArgsConstructor;
  */
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 @Builder
 public class RetrievedChunk {
 
@@ -51,4 +52,22 @@ public class RetrievedChunk {
      * 数值越大表示与查询的相关性越高
      */
     private Float score;
+
+    /**
+     * 检索来源信息
+     * 用于在检索、后处理、Prompt 组装链路中保留可追踪的来源信息
+     */
+    @Builder.Default
+    private Map<String, String> provenance = new LinkedHashMap<>();
+
+    public RetrievedChunk(String id, String text, Float score) {
+        this(id, text, score, new LinkedHashMap<>());
+    }
+
+    public RetrievedChunk(String id, String text, Float score, Map<String, String> provenance) {
+        this.id = id;
+        this.text = text;
+        this.score = score;
+        this.provenance = provenance == null ? new LinkedHashMap<>() : new LinkedHashMap<>(provenance);
+    }
 }

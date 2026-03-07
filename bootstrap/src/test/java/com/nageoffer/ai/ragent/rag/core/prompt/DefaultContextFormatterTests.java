@@ -43,7 +43,7 @@ class DefaultContextFormatterTests {
                 2
         );
 
-        assertEquals("#### 知识库片段\n````text\nA\nB\n````", result);
+        assertEquals("#### 知识库片段\n````text\nA\n\nB\n````", result);
     }
 
     @Test
@@ -57,6 +57,7 @@ class DefaultContextFormatterTests {
         );
 
         assertEquals("#### 回答规则\n先回答结论\n\n#### 知识库片段\n````text\n片段一\n````", result);
+        assertTrue(result.contains("片段一"));
     }
 
     @Test
@@ -73,7 +74,23 @@ class DefaultContextFormatterTests {
 
         assertTrue(result.contains("1. 规则A"));
         assertTrue(result.contains("2. 规则B"));
-        assertTrue(result.contains("共享片段\n片段二\n片段三"));
+        assertTrue(result.contains("共享片段"));
+        assertTrue(result.contains("片段二"));
+        assertTrue(result.contains("片段三"));
+    }
+
+    @Test
+    void shouldRenderCollectionProvenanceInKbContext() {
+        NodeScore intent = nodeScore("kb-1", IntentKind.KB, null, "规则A");
+
+        String result = formatter.formatKbContext(
+                List.of(intent),
+                Map.of("kb-1", List.of(chunk("1", "片段一", Map.of("collection", "employee_manual")))),
+                1
+        );
+
+        assertTrue(result.contains("[来源: employee_manual]"));
+        assertTrue(result.contains("片段一"));
     }
 
     @Test
@@ -126,10 +143,15 @@ class DefaultContextFormatterTests {
     }
 
     private static RetrievedChunk chunk(String id, String text) {
+        return chunk(id, text, Map.of());
+    }
+
+    private static RetrievedChunk chunk(String id, String text, Map<String, String> provenance) {
         return RetrievedChunk.builder()
                 .id(id)
                 .text(text)
                 .score(0.8f)
+                .provenance(provenance)
                 .build();
     }
 }

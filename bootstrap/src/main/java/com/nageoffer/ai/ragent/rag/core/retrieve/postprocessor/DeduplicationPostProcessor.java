@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 去重后置处理器
@@ -75,16 +76,39 @@ public class DeduplicationPostProcessor implements SearchResultPostProcessor {
                             // 新 Chunk，直接添加
                             chunkMap.put(key, chunk);
                         } else {
-                            // 已存在，合并分数（取最高分）
+                            // 已存在，合并分数与来源信息
                             RetrievedChunk existing = chunkMap.get(key);
-                            if (chunk.getScore() > existing.getScore()) {
-                                chunkMap.put(key, chunk);
-                            }
+                            RetrievedChunk merged = mergeChunk(existing, chunk);
+                            chunkMap.put(key, merged);
                         }
                     }
                 });
 
         return new ArrayList<>(chunkMap.values());
+    }
+
+    private RetrievedChunk mergeChunk(RetrievedChunk existing, RetrievedChunk candidate) {
+        RetrievedChunk preferred = compareScore(candidate, existing) > 0 ? candidate : existing;
+        Map<String, String> mergedProvenance = new LinkedHashMap<>();
+        if (existing.getProvenance() != null) {
+            mergedProvenance.putAll(existing.getProvenance());
+        }
+        if (candidate.getProvenance() != null) {
+            mergedProvenance.putAll(candidate.getProvenance());
+        }
+        return RetrievedChunk.builder()
+                .id(preferred.getId())
+                .text(preferred.getText())
+                .score(preferred.getScore())
+                .provenance(mergedProvenance)
+                .build();
+    }
+
+    private int compareScore(RetrievedChunk left, RetrievedChunk right) {
+        return Float.compare(
+                Objects.requireNonNullElse(left.getScore(), Float.NEGATIVE_INFINITY),
+                Objects.requireNonNullElse(right.getScore(), Float.NEGATIVE_INFINITY)
+        );
     }
 
     /**

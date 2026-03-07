@@ -65,8 +65,8 @@ public class DefaultContextFormatter implements ContextFormatter {
         String snippet = StrUtil.emptyIfNull(nodeScore.getNode().getPromptSnippet()).trim();
         String body = chunks.stream()
                 .limit(topK)
-                .map(RetrievedChunk::getText)
-                .collect(Collectors.joining("\n"));
+                .map(this::renderKbChunk)
+                .collect(Collectors.joining("\n\n"));
         StringBuilder block = new StringBuilder();
         if (StrUtil.isNotBlank(snippet)) {
             block.append("#### 回答规则\n").append(snippet).append("\n\n");
@@ -106,8 +106,8 @@ public class DefaultContextFormatter implements ContextFormatter {
 
         if (!allChunks.isEmpty()) {
             String body = allChunks.stream()
-                    .map(RetrievedChunk::getText)
-                    .collect(Collectors.joining("\n"));
+                    .map(this::renderKbChunk)
+                    .collect(Collectors.joining("\n\n"));
             result.append("#### 知识库片段\n````text\n").append(body).append("\n````");
         }
 
@@ -136,9 +136,21 @@ public class DefaultContextFormatter implements ContextFormatter {
         }
 
         String body = chunks.stream()
-                .map(RetrievedChunk::getText)
-                .collect(Collectors.joining("\n"));
+                .map(this::renderKbChunk)
+                .collect(Collectors.joining("\n\n"));
         return "#### 知识库片段\n````text\n" + body + "\n````";
+    }
+
+    private String renderKbChunk(RetrievedChunk chunk) {
+        String text = StrUtil.emptyIfNull(chunk.getText()).trim();
+        if (chunk.getProvenance() == null || chunk.getProvenance().isEmpty()) {
+            return text;
+        }
+        String collection = StrUtil.emptyIfNull(chunk.getProvenance().get("collection")).trim();
+        if (StrUtil.isBlank(collection)) {
+            return text;
+        }
+        return "[来源: " + collection + "]\n" + text;
     }
 
     @Override
