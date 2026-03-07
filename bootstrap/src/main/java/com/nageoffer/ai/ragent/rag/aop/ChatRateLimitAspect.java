@@ -36,6 +36,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Date;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * SSE 全局限流切面，避免业务代码侵入
@@ -101,31 +102,46 @@ public class ChatRateLimitAspect {
                 .extraData(StrUtil.format("{\"questionLength\":{}}", StrUtil.length(question)))
                 .build());
 
+        AtomicBoolean traceFinished = new AtomicBoolean(false);
+        registerTraceLifecycle(emitter, traceId, startMillis, traceFinished);
         RagTraceContext.setTraceId(traceId);
         RagTraceContext.setTaskId(taskId);
         try {
             method.invoke(target, args);
-            traceRecordService.finishRun(
-                    traceId,
-                    STATUS_SUCCESS,
-                    null,
-                    new Date(),
-                    System.currentTimeMillis() - startMillis
-            );
         } catch (Throwable ex) {
             Throwable cause = unwrap(ex);
-            traceRecordService.finishRun(
-                    traceId,
-                    STATUS_ERROR,
-                    truncateError(cause),
-                    new Date(),
-                    System.currentTimeMillis() - startMillis
-            );
+            finishTrace(traceId, STATUS_ERROR, truncateError(cause), startMillis, traceFinished);
             log.warn("执行流式对话失败", cause);
             emitter.completeWithError(cause);
         } finally {
             RagTraceContext.clear();
         }
+    }
+
+    private void registerTraceLifecycle(SseEmitter emitter,
+                                        String traceId,
+                                        long startMillis,
+                                        AtomicBoolean traceFinished) {
+        emitter.onCompletion(() -> finishTrace(traceId, STATUS_SUCCESS, null, startMillis, traceFinished));
+        emitter.onTimeout(() -> finishTrace(traceId, STATUS_ERROR, "SSE timeout", startMillis, traceFinished));
+        emitter.onError(error -> finishTrace(traceId, STATUS_ERROR, truncateError(error), startMillis, traceFinished));
+    }
+
+    private void finishTrace(String traceId,
+                             String status,
+                             String errorMessage,
+                             long startMillis,
+                             AtomicBoolean traceFinished) {
+        if (!traceFinished.compareAndSet(false, true)) {
+            return;
+        }
+        traceRecordService.finishRun(
+                traceId,
+                status,
+                errorMessage,
+                new Date(),
+                System.currentTimeMillis() - startMillis
+        );
     }
 
     private void invokeTarget(Method method, Object target, Object[] args, SseEmitter emitter) {
