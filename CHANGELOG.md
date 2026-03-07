@@ -10,6 +10,8 @@
 - Verified the bootstrap backend module with targeted retrieval and prompt-path tests using `./mvnw -f /home/pejoy/code/ragent/.worktrees/optimization-implementation/pom.xml -pl bootstrap -am -Dsurefire.failIfNoSpecifiedTests=false -Dtest=DefaultContextFormatterTests,DeduplicationPostProcessorTests,MilvusRetrieverServiceTests,MultiChannelRetrievalEngineTests,RetrievalEngineTests test`.
 - Aligned stream trace completion with the real SSE lifecycle by deferring `finishRun` until emitter completion, timeout, or error instead of closing the trace when the stream method returns.
 - Added aspect tests covering deferred trace success on SSE completion and error finalization on SSE failure callbacks.
+- Split `RetrievalEngine` one step further toward explicit stages by separating per-subquestion KB retrieval, MCP execution, and final context merge helpers without broad request-path churn.
+- Added retrieval tests covering the explicit merge stage so multi-subquestion KB context composition remains stable through the refactor.
 - Added route-level lazy loading for admin routes so dashboard, knowledge, intent, ingestion, traces, settings, sample question, and user screens load on demand behind router suspense fallbacks.
 - Narrowed shell Zustand subscriptions in the chat header and sidebar so layout chrome listens only to the auth and chat slices it renders instead of subscribing to whole stores.
 - Moved low-level frontend API auth side effects upward by replacing axios interceptor toast/redirect logic with an unauthorized callback, handling session expiry in auth store state, and triggering login/logout toasts plus navigation at app/page boundaries.

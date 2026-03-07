@@ -109,6 +109,37 @@ class RetrievalEngineTests {
         assertTrue(result.getIntentChunks().get("intent-employee").isEmpty());
     }
 
+    @Test
+    void shouldMergeKbAndMcpContextsAcrossSubQuestionsByStage() {
+        Executor directExecutor = Runnable::run;
+        RetrievalEngine engine = new RetrievalEngine(
+                contextFormatter,
+                mcpParameterExtractor,
+                mcpToolRegistry,
+                multiChannelRetrievalEngine,
+                directExecutor,
+                directExecutor
+        );
+        NodeScore employeeIntent = kbIntent("intent-employee", "employee_manual");
+        SubQuestionIntent first = new SubQuestionIntent("子问题一", List.of(employeeIntent));
+        SubQuestionIntent second = new SubQuestionIntent("子问题二", List.of(employeeIntent));
+        RetrievedChunk firstChunk = chunk("c1", "片段一", "employee_manual");
+        RetrievedChunk secondChunk = chunk("c2", "片段二", "employee_manual");
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(first), 5))
+                .thenReturn(List.of(firstChunk));
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(second), 5))
+                .thenReturn(List.of(secondChunk));
+        when(contextFormatter.formatKbContext(anyList(), anyMap(), anyInt()))
+                .thenReturn("formatted-kb-1", "formatted-kb-2");
+
+        RetrievalContext result = engine.retrieve(List.of(first, second), 5);
+
+        assertTrue(result.getKbContext().contains("**子问题**：子问题一"));
+        assertTrue(result.getKbContext().contains("formatted-kb-1"));
+        assertTrue(result.getKbContext().contains("**子问题**：子问题二"));
+        assertTrue(result.getKbContext().contains("formatted-kb-2"));
+    }
+
     private static NodeScore kbIntent(String id, String collectionName) {
         return NodeScore.builder()
                 .node(IntentNode.builder()

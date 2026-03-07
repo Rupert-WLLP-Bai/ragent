@@ -102,20 +102,28 @@ public class RetrievalEngine {
                 .map(CompletableFuture::join)
                 .toList();
 
+        return mergeSubQuestionContexts(contexts);
+    }
+
+    private SubQuestionContext buildSubQuestionContext(SubQuestionIntent intent, int topK) {
+        List<NodeScore> kbIntents = selectKbStageIntents(intent.nodeScores());
+        List<NodeScore> mcpIntents = selectMcpStageIntents(intent.nodeScores());
+
+        KbResult kbResult = executeKbStage(intent, kbIntents, topK);
+        String mcpContext = executeMcpStage(intent.subQuestion(), mcpIntents);
+
+        return new SubQuestionContext(intent.subQuestion(), kbResult.groupedContext(), mcpContext, kbResult.intentChunks());
+    }
+
+    private RetrievalContext mergeSubQuestionContexts(List<SubQuestionContext> contexts) {
         StringBuilder kbBuilder = new StringBuilder();
         StringBuilder mcpBuilder = new StringBuilder();
         Map<String, List<RetrievedChunk>> mergedIntentChunks = new ConcurrentHashMap<>();
 
         for (SubQuestionContext context : contexts) {
-            if (StrUtil.isNotBlank(context.kbContext())) {
-                appendSection(kbBuilder, context.question(), context.kbContext());
-            }
-            if (StrUtil.isNotBlank(context.mcpContext())) {
-                appendSection(mcpBuilder, context.question(), context.mcpContext());
-            }
-            if (CollUtil.isNotEmpty(context.intentChunks())) {
-                mergedIntentChunks.putAll(context.intentChunks());
-            }
+            appendMergedContextSection(kbBuilder, context.question(), context.kbContext());
+            appendMergedContextSection(mcpBuilder, context.question(), context.mcpContext());
+            mergeIntentChunks(mergedIntentChunks, context.intentChunks());
         }
 
         return RetrievalContext.builder()
@@ -125,26 +133,13 @@ public class RetrievalEngine {
                 .build();
     }
 
-    private SubQuestionContext buildSubQuestionContext(SubQuestionIntent intent, int topK) {
-        List<NodeScore> kbIntents = filterKbIntents(intent.nodeScores());
-        List<NodeScore> mcpIntents = filterMCPIntents(intent.nodeScores());
-
-        KbResult kbResult = retrieveAndRerank(intent, kbIntents, topK);
-
-        String mcpContext = CollUtil.isNotEmpty(mcpIntents)
-                ? executeMcpAndMerge(intent.subQuestion(), mcpIntents)
-                : "";
-
-        return new SubQuestionContext(intent.subQuestion(), kbResult.groupedContext(), mcpContext, kbResult.intentChunks());
-    }
-
     /**
      * 子问题实际 TopK 计算规则：
      * 1. 命中 KB 意图节点且配置了节点级 topK：取最大值（多意图保守放大）
      * 2. 没有任何可用节点级 topK：回退到全局 topK
      */
     private int resolveSubQuestionTopK(SubQuestionIntent intent, int fallbackTopK) {
-        return filterKbIntents(intent.nodeScores()).stream()
+        return selectKbStageIntents(intent.nodeScores()).stream()
                 .map(NodeScore::getNode)
                 .filter(Objects::nonNull)
                 .map(IntentNode::getTopK)
@@ -154,14 +149,25 @@ public class RetrievalEngine {
                 .orElse(fallbackTopK);
     }
 
-    private void appendSection(StringBuilder builder, String question, String context) {
+    private void appendMergedContextSection(StringBuilder builder, String question, String context) {
+        if (StrUtil.isBlank(context)) {
+            return;
+        }
         builder.append("---\n")
                 .append("**子问题**：").append(question).append("\n\n")
                 .append("**相关文档**：\n")
                 .append(context).append("\n\n");
     }
 
-    private List<NodeScore> filterMCPIntents(List<NodeScore> nodeScores) {
+    private void mergeIntentChunks(Map<String, List<RetrievedChunk>> mergedIntentChunks,
+                                   Map<String, List<RetrievedChunk>> stageIntentChunks) {
+        if (CollUtil.isEmpty(stageIntentChunks)) {
+            return;
+        }
+        mergedIntentChunks.putAll(stageIntentChunks);
+    }
+
+    private List<NodeScore> selectMcpStageIntents(List<NodeScore> nodeScores) {
         return nodeScores.stream()
                 .filter(ns -> ns.getScore() >= INTENT_MIN_SCORE)
                 .filter(ns -> ns.getNode() != null && ns.getNode().getKind() == IntentKind.MCP)
@@ -169,7 +175,7 @@ public class RetrievalEngine {
                 .toList();
     }
 
-    private List<NodeScore> filterKbIntents(List<NodeScore> nodeScores) {
+    private List<NodeScore> selectKbStageIntents(List<NodeScore> nodeScores) {
         return nodeScores.stream()
                 .filter(ns -> ns.getScore() >= INTENT_MIN_SCORE)
                 .filter(ns -> {
@@ -182,7 +188,7 @@ public class RetrievalEngine {
                 .toList();
     }
 
-    private String executeMcpAndMerge(String question, List<NodeScore> mcpIntents) {
+    private String executeMcpStage(String question, List<NodeScore> mcpIntents) {
         if (CollUtil.isEmpty(mcpIntents)) {
             return "";
         }
@@ -195,7 +201,7 @@ public class RetrievalEngine {
         return contextFormatter.formatMcpContext(responses, mcpIntents);
     }
 
-    private KbResult retrieveAndRerank(SubQuestionIntent intent, List<NodeScore> kbIntents, int topK) {
+    private KbResult executeKbStage(SubQuestionIntent intent, List<NodeScore> kbIntents, int topK) {
         List<RetrievedChunk> chunks = executeKnowledgeRetrieval(intent, topK);
         if (CollUtil.isEmpty(chunks)) {
             return KbResult.empty();
