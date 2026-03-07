@@ -118,129 +118,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
     }
 
     private Map<String, Object> tryFastPath(String userQuestion, MCPTool tool) {
-        if (!isSimpleFastPathTool(tool)) {
-            return null;
-        }
-
-        String normalizedQuestion = StrUtil.emptyIfNull(userQuestion);
-        Map<String, Object> extracted = new HashMap<>();
-        long numericParamCount = tool.getParameters().values().stream()
-                .filter(Objects::nonNull)
-                .map(MCPTool.ParameterDef::getType)
-                .filter(type -> isNumericType(type))
-                .count();
-
-        for (Map.Entry<String, MCPTool.ParameterDef> entry : tool.getParameters().entrySet()) {
-            String paramName = entry.getKey();
-            MCPTool.ParameterDef def = entry.getValue();
-            Object value = extractSimpleParameter(normalizedQuestion, tool, paramName, def, numericParamCount);
-            if (value != null) {
-                extracted.put(paramName, value);
-            }
-        }
-
-        fillDefaults(extracted, tool);
-
-        boolean allRequiredPresent = tool.getParameters().entrySet().stream()
-                .filter(entry -> entry.getValue() != null && entry.getValue().isRequired())
-                .allMatch(entry -> extracted.containsKey(entry.getKey()));
-
-        return allRequiredPresent ? extracted : null;
-    }
-
-    private boolean isSimpleFastPathTool(MCPTool tool) {
-        return tool.getParameters().values().stream().allMatch(def -> {
-            if (def == null) {
-                return false;
-            }
-            String type = StrUtil.blankToDefault(def.getType(), "string").toLowerCase(Locale.ROOT);
-            return type.equals("string") || type.equals("boolean") || type.equals("number") || type.equals("integer");
-        });
-    }
-
-    private Object extractSimpleParameter(String userQuestion, MCPTool tool, String paramName, MCPTool.ParameterDef def, long numericParamCount) {
-        if (def == null) {
-            return null;
-        }
-
-        if (CollUtil.isNotEmpty(def.getEnumValues())) {
-            return matchEnum(userQuestion, def.getEnumValues());
-        }
-
-        String type = StrUtil.blankToDefault(def.getType(), "string").toLowerCase(Locale.ROOT);
-        return switch (type) {
-            case "boolean" -> extractBooleanValue(userQuestion, paramName);
-            case "number", "integer" -> extractNumericValue(userQuestion, paramName, type, numericParamCount);
-            case "string" -> extractStringValue(userQuestion, paramName);
-            default -> null;
-        };
-    }
-
-    private Object matchEnum(String userQuestion, List<String> enumValues) {
-        String normalizedQuestion = StrUtil.emptyIfNull(userQuestion).toLowerCase(Locale.ROOT);
-        return enumValues.stream()
-                .filter(StrUtil::isNotBlank)
-                .filter(value -> normalizedQuestion.contains(value.toLowerCase(Locale.ROOT)))
-                .findFirst()
-                .orElse(null);
-    }
-
-    private Object extractBooleanValue(String userQuestion, String paramName) {
-        String normalizedQuestion = StrUtil.emptyIfNull(userQuestion).toLowerCase(Locale.ROOT);
-        String normalizedParam = StrUtil.emptyIfNull(paramName).toLowerCase(Locale.ROOT);
-        if (normalizedQuestion.contains(normalizedParam + " true") || normalizedQuestion.contains(normalizedParam + ":true")) {
-            return Boolean.TRUE;
-        }
-        if (normalizedQuestion.contains(normalizedParam + " false") || normalizedQuestion.contains(normalizedParam + ":false")) {
-            return Boolean.FALSE;
-        }
-        return null;
-    }
-
-    private Object extractNumericValue(String userQuestion, String paramName, String type, long numericParamCount) {
-        String normalizedParam = StrUtil.emptyIfNull(paramName);
-        Pattern namedPattern = Pattern.compile(Pattern.quote(normalizedParam) + "\s*[:=]?\s*(-?\d+(?:\.\d+)?)", Pattern.CASE_INSENSITIVE);
-        Matcher namedMatcher = namedPattern.matcher(userQuestion);
-        if (namedMatcher.find()) {
-            return castNumericValue(namedMatcher.group(1), type);
-        }
-
-        if (numericParamCount > 1) {
-            return null;
-        }
-
-        Pattern bareNumberPattern = Pattern.compile("(-?\d+(?:\.\d+)?)");
-        Matcher bareMatcher = bareNumberPattern.matcher(userQuestion);
-        if (bareMatcher.find()) {
-            return castNumericValue(bareMatcher.group(1), type);
-        }
-        return null;
-    }
-
-    private Object castNumericValue(String raw, String type) {
-        if (!NumberUtil.isNumber(raw)) {
-            return null;
-        }
-        return type.equals("integer") ? Integer.parseInt(raw) : Double.parseDouble(raw);
-    }
-
-    private Object extractStringValue(String userQuestion, String paramName) {
-        String normalizedParam = StrUtil.emptyIfNull(paramName);
-        Pattern quotedPattern = Pattern.compile(Pattern.quote(normalizedParam) + "\s*[:=]?\s*"([^"]+)"", Pattern.CASE_INSENSITIVE);
-        Matcher quotedMatcher = quotedPattern.matcher(userQuestion);
-        if (quotedMatcher.find()) {
-            return quotedMatcher.group(1);
-        }
-
-        Pattern rawPattern = Pattern.compile(Pattern.quote(normalizedParam) + "\s*[:=]?\s*([A-Za-z0-9_\-]+)", Pattern.CASE_INSENSITIVE);
-        Matcher rawMatcher = rawPattern.matcher(userQuestion);
-        if (rawMatcher.find()) {
-            return rawMatcher.group(1);
-        }
-        return null;
-    }
-
-    private Map<String, Object> tryFastPath(String userQuestion, MCPTool tool) {
         if (!supportsFastPath(tool)) {
             return null;
         }
@@ -267,7 +144,16 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         if (tool == null || CollUtil.isEmpty(tool.getParameters()) || tool.getParameters().size() > 3) {
             return false;
         }
+        if (countNumericParameters(tool) > 1) {
+            return false;
+        }
         return tool.getParameters().values().stream().allMatch(this::isSimpleParameterType);
+    }
+
+    private long countNumericParameters(MCPTool tool) {
+        return tool.getParameters().values().stream()
+                .filter(def -> def != null && isNumericType(def.getType()))
+                .count();
     }
 
     private boolean isSimpleParameterType(MCPTool.ParameterDef def) {
@@ -276,6 +162,11 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         }
         String type = normalizeType(def.getType());
         return "string".equals(type) || "number".equals(type) || "integer".equals(type) || "boolean".equals(type);
+    }
+
+    private boolean isNumericType(String type) {
+        String normalizedType = normalizeType(type);
+        return "number".equals(normalizedType) || "integer".equals(normalizedType);
     }
 
     private Object extractSimpleParameter(String userQuestion, MCPTool tool, String paramName, MCPTool.ParameterDef def) {
@@ -469,7 +360,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         if (StrUtil.isBlank(raw)) {
             return new HashMap<>();
         }
-        // 清理可能的 markdown 代码块
         String cleaned = LLMResponseCleaner.stripMarkdownCodeFence(raw);
         JsonElement element = JsonParser.parseString(cleaned);
         if (!element.isJsonObject()) {
@@ -478,7 +368,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         }
         JsonObject obj = element.getAsJsonObject();
         Map<String, Object> result = new HashMap<>();
-        // 只提取工具定义中声明的参数
         for (String paramName : tool.getParameters().keySet()) {
             if (obj.has(paramName) && !obj.get(paramName).isJsonNull()) {
                 JsonElement value = obj.get(paramName);
@@ -521,7 +410,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         }
         return null;
     }
-
 
     /**
      * 填充默认值
