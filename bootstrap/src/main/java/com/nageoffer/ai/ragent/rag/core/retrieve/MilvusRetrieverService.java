@@ -47,12 +47,13 @@ public class MilvusRetrieverService implements RetrieverService {
 
     @Override
     public List<RetrievedChunk> retrieve(RetrieveRequest retrieveParam) {
-        List<Float> emb = embeddingService.embed(retrieveParam.getQuery());
-        float[] vec = toArray(emb);
+        float[] queryVector = retrieveParam.getQueryVector();
+        if (queryVector == null || queryVector.length == 0) {
+            List<Float> emb = embeddingService.embed(retrieveParam.getQuery());
+            queryVector = normalize(toArray(emb));
+        }
 
-        float[] norm = normalize(vec);
-
-        return retrieveByVector(norm, retrieveParam);
+        return retrieveByVector(queryVector, retrieveParam);
     }
 
     @Override
@@ -63,10 +64,12 @@ public class MilvusRetrieverService implements RetrieverService {
         params.put("metric_type", ragDefaultProperties.getMetricType());
         params.put("ef", 128);
 
+        String collectionName = StrUtil.isBlank(retrieveParam.getCollectionName())
+                ? ragDefaultProperties.getCollectionName()
+                : retrieveParam.getCollectionName();
+
         SearchReq req = SearchReq.builder()
-                .collectionName(
-                        StrUtil.isBlank(retrieveParam.getCollectionName()) ? ragDefaultProperties.getCollectionName() : retrieveParam.getCollectionName()
-                )
+                .collectionName(collectionName)
                 .annsField("embedding")
                 .data(vectors)
                 .topK(retrieveParam.getTopK())
@@ -87,7 +90,8 @@ public class MilvusRetrieverService implements RetrieverService {
                 .map(r -> new RetrievedChunk(
                         Objects.toString(r.getEntity().get("doc_id"), ""),
                         Objects.toString(r.getEntity().get("content"), ""),
-                        r.getScore()))
+                        r.getScore(),
+                        Map.of("collection", collectionName)))
                 .collect(Collectors.toList());
     }
 

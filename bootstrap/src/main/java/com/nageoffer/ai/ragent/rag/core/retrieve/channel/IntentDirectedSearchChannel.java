@@ -103,6 +103,7 @@ public class IntentDirectedSearchChannel implements SearchChannel {
             int topKMultiplier = properties.getChannels().getIntentDirected().getTopKMultiplier();
             List<RetrievedChunk> allChunks = retrieveByIntents(
                     context.getMainQuestion(),
+                    context.getQueryVector(),
                     kbIntents,
                     context.getTopK(),
                     topKMultiplier
@@ -161,10 +162,11 @@ public class IntentDirectedSearchChannel implements SearchChannel {
      * 根据意图列表并行检索
      */
     private List<RetrievedChunk> retrieveByIntents(String question,
+                                                   float[] queryVector,
                                                    List<NodeScore> kbIntents,
                                                    int fallbackTopK,
                                                    int topKMultiplier) {
         // 使用模板方法执行并行检索
-        return parallelRetriever.executeParallelRetrieval(question, kbIntents, fallbackTopK, topKMultiplier);
+        return parallelRetriever.executeParallelRetrieval(question, kbIntents, fallbackTopK, topKMultiplier, queryVector);
     }
 }

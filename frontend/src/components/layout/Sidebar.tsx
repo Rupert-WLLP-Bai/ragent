@@ -14,6 +14,8 @@ import {
   Trash2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { shallow } from "zustand/shallow";
 
 import {
   AlertDialog,
@@ -52,9 +54,31 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     renameSession,
     selectSession,
     fetchSessions
-  } = useChatStore();
+  } = useChatStore(
+    React.useCallback(
+      (state) => ({
+        sessions: state.sessions,
+        currentSessionId: state.currentSessionId,
+        isLoading: state.isLoading,
+        sessionsLoaded: state.sessionsLoaded,
+        createSession: state.createSession,
+        deleteSession: state.deleteSession,
+        renameSession: state.renameSession,
+        selectSession: state.selectSession,
+        fetchSessions: state.fetchSessions
+      }),
+      []
+    ),
+    shallow
+  );
   const navigate = useNavigate();
-  const { user, logout } = useAuthStore();
+  const { user, logout } = useAuthStore(
+    React.useCallback(
+      (state) => ({ user: state.user, logout: state.logout }),
+      []
+    ),
+    shallow
+  );
   const [query, setQuery] = React.useState("");
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState("");
@@ -433,7 +457,17 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
                   哔哩哔哩
                 </a>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => logout()} className="text-rose-600 focus:text-rose-600">
+              <DropdownMenuItem
+                onClick={() => {
+                  logout()
+                    .then(() => {
+                      toast.success("已退出登录");
+                      navigate("/login");
+                    })
+                    .catch(() => null);
+                }}
+                className="text-rose-600 focus:text-rose-600"
+              >
                 <LogOut className="mr-2 h-4 w-4" />
                 退出登录
               </DropdownMenuItem>

@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.rag.core.retrieve;
 
 import cn.hutool.core.collection.CollUtil;
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
+import com.nageoffer.ai.ragent.infra.embedding.EmbeddingService;
 import com.nageoffer.ai.ragent.framework.trace.RagTraceNode;
 import com.nageoffer.ai.ragent.rag.core.retrieve.channel.SearchChannel;
 import com.nageoffer.ai.ragent.rag.core.retrieve.channel.SearchChannelResult;
@@ -50,6 +51,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class MultiChannelRetrievalEngine {
 
+    private final EmbeddingService embeddingService;
     private final List<SearchChannel> searchChannels;
     private final List<SearchResultPostProcessor> postProcessors;
     @Qualifier("ragRetrievalThreadPoolExecutor")
@@ -222,6 +224,45 @@ public class MultiChannelRetrievalEngine {
                 .rewrittenQuestion(question)
                 .intents(subIntents)
                 .topK(topK)
+                .queryVector(buildQueryVector(question))
                 .build();
+    }
+
+    private float[] buildQueryVector(String question) {
+        if (question == null || question.isBlank()) {
+            return null;
+        }
+
+        List<Float> embedding = embeddingService.embed(question);
+        if (CollUtil.isEmpty(embedding)) {
+            return null;
+        }
+        return normalize(toArray(embedding));
+    }
+
+    private float[] toArray(List<Float> values) {
+        float[] vector = new float[values.size()];
+        for (int i = 0; i < values.size(); i++) {
+            vector[i] = values.get(i);
+        }
+        return vector;
+    }
+
+    private float[] normalize(float[] vector) {
+        double sum = 0.0;
+        for (float value : vector) {
+            sum += value * value;
+        }
+
+        double length = Math.sqrt(sum);
+        if (length == 0.0D) {
+            return vector;
+        }
+
+        float[] normalized = new float[vector.length];
+        for (int i = 0; i < vector.length; i++) {
+            normalized[i] = (float) (vector[i] / length);
+        }
+        return normalized;
     }
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import {
   ChevronDown,
   ChevronRight,
@@ -35,7 +36,6 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import { changePassword } from "@/services/userService";
 import {
   getKnowledgeBases,
@@ -186,6 +186,7 @@ export function AdminLayout() {
 
   const handleLogout = async () => {
     await logout();
+    toast.success("已退出登录");
     navigate("/login");
   };
 

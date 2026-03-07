@@ -19,7 +19,10 @@ package com.nageoffer.ai.ragent.rag.config;
 
 import io.milvus.v2.client.ConnectConfig;
 import io.milvus.v2.client.MilvusClientV2;
+import io.milvus.v2.service.collection.request.HasCollectionReq;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -69,5 +72,29 @@ public class MilvusConfig {
 
         // 创建并返回 Milvus 客户端
         return new MilvusClientV2(builder.build());
+    }
+
+    @Bean
+    public HealthIndicator milvusHealthIndicator(MilvusClientV2 milvusClient, RAGDefaultProperties ragDefaultProperties) {
+        return () -> {
+            try {
+                String collectionName = ragDefaultProperties.getCollectionName();
+                Boolean exists = milvusClient.hasCollection(HasCollectionReq.builder()
+                        .collectionName(collectionName)
+                        .build());
+                if (!Boolean.TRUE.equals(exists)) {
+                    return Health.outOfService()
+                            .withDetail("collection", collectionName)
+                            .withDetail("collectionExists", false)
+                            .build();
+                }
+                return Health.up()
+                        .withDetail("collection", collectionName)
+                        .withDetail("collectionExists", true)
+                        .build();
+            } catch (Exception ex) {
+                return Health.down(ex).build();
+            }
+        };
     }
 }

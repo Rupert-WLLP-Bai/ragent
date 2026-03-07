@@ -53,17 +53,28 @@ public class IntentParallelRetriever extends AbstractParallelRetriever<IntentPar
                                                          List<NodeScore> targets,
                                                          int fallbackTopK,
                                                          int topKMultiplier) {
+        return executeParallelRetrieval(question, targets, fallbackTopK, topKMultiplier, null);
+    }
+
+    public List<RetrievedChunk> executeParallelRetrieval(String question,
+                                                         List<NodeScore> targets,
+                                                         int fallbackTopK,
+                                                         int topKMultiplier,
+                                                         float[] queryVector) {
         List<IntentTask> intentTasks = targets.stream()
                 .map(nodeScore -> new IntentTask(
                         nodeScore,
                         resolveIntentTopK(nodeScore, fallbackTopK, topKMultiplier)
                 ))
                 .toList();
-        return super.executeParallelRetrieval(question, intentTasks, fallbackTopK);
+        return super.executeParallelRetrieval(question, intentTasks, fallbackTopK, queryVector);
     }
 
     @Override
-    protected List<RetrievedChunk> createRetrievalTask(String question, IntentTask task, int ignoredTopK) {
+    protected List<RetrievedChunk> createRetrievalTask(String question,
+                                                       IntentTask task,
+                                                       int ignoredTopK,
+                                                       float[] queryVector) {
         NodeScore nodeScore = task.nodeScore();
         IntentNode node = nodeScore.getNode();
         try {
@@ -72,6 +83,7 @@ public class IntentParallelRetriever extends AbstractParallelRetriever<IntentPar
                             .collectionName(node.getCollectionName())
                             .query(question)
                             .topK(task.intentTopK())
+                            .queryVector(queryVector)
                             .build()
             );
         } catch (Exception e) {

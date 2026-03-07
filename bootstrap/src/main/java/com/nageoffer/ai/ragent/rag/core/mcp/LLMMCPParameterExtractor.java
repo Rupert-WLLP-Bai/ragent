@@ -18,6 +18,7 @@
 package com.nageoffer.ai.ragent.rag.core.mcp;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.NumberUtil;
 import cn.hutool.core.util.StrUtil;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -38,7 +39,11 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.MCP_PARAMETER_EXTRACT_PROMPT_PATH;
 
@@ -65,7 +70,12 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
             return Collections.emptyMap();
         }
 
-        // 构建 Prompt：优先使用自定义提示词
+        Map<String, Object> fastPathResult = tryFastPath(userQuestion, tool);
+        if (fastPathResult != null) {
+            log.info("MCP 参数提取快速路径命中, toolId: {}, 参数: {}", tool.getToolId(), fastPathResult);
+            return fastPathResult;
+        }
+
         List<ChatMessage> messages = new ArrayList<>(3);
         String systemPrompt = StrUtil.isNotBlank(customPromptTemplate)
                 ? customPromptTemplate
@@ -77,7 +87,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
 
         String raw = null;
         try {
-            // 调用 LLM 提取参数
             ChatRequest request = ChatRequest.builder()
                     .messages(messages)
                     .temperature(0.1D)
@@ -87,10 +96,7 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
             raw = llmService.chat(request);
             log.info("MCP 参数提取 LLM 响应: {}", raw);
 
-            // 解析 JSON 响应
             Map<String, Object> extracted = parseJsonResponse(raw, tool);
-
-            // 填充默认值
             fillDefaults(extracted, tool);
 
             log.info("MCP 参数提取完成, toolId: {}, 使用自定义提示词: {}, 参数: {}",
@@ -110,6 +116,212 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         Map<String, Object> defaultParams = new HashMap<>();
         fillDefaults(defaultParams, tool);
         return defaultParams;
+    }
+
+    private Map<String, Object> tryFastPath(String userQuestion, MCPTool tool) {
+        if (!supportsFastPath(tool)) {
+            return null;
+        }
+        String normalizedQuestion = StrUtil.trimToEmpty(userQuestion);
+        Map<String, Object> extracted = new LinkedHashMap<>();
+
+        for (Map.Entry<String, MCPTool.ParameterDef> entry : tool.getParameters().entrySet()) {
+            String paramName = entry.getKey();
+            MCPTool.ParameterDef def = entry.getValue();
+            Object value = extractSimpleParameter(normalizedQuestion, tool, paramName, def);
+            if (value != null) {
+                extracted.put(paramName, value);
+            }
+        }
+
+        fillDefaults(extracted, tool);
+        if (!hasRequiredParameters(extracted, tool)) {
+            return null;
+        }
+        return extracted;
+    }
+
+    private boolean supportsFastPath(MCPTool tool) {
+        if (tool == null || CollUtil.isEmpty(tool.getParameters()) || tool.getParameters().size() > 3) {
+            return false;
+        }
+        if (countNumericParameters(tool) > 1) {
+            return false;
+        }
+        return tool.getParameters().values().stream().allMatch(this::isSimpleParameterType);
+    }
+
+    private long countNumericParameters(MCPTool tool) {
+        return tool.getParameters().values().stream()
+                .filter(def -> def != null && isNumericType(def.getType()))
+                .count();
+    }
+
+    private boolean isSimpleParameterType(MCPTool.ParameterDef def) {
+        if (def == null) {
+            return false;
+        }
+        String type = normalizeType(def.getType());
+        return "string".equals(type) || "number".equals(type) || "integer".equals(type) || "boolean".equals(type);
+    }
+
+    private boolean isNumericType(String type) {
+        String normalizedType = normalizeType(type);
+        return "number".equals(normalizedType) || "integer".equals(normalizedType);
+    }
+
+    private Object extractSimpleParameter(String userQuestion, MCPTool tool, String paramName, MCPTool.ParameterDef def) {
+        if (StrUtil.isBlank(userQuestion) || def == null) {
+            return null;
+        }
+        String type = normalizeType(def.getType());
+        if (CollUtil.isNotEmpty(def.getEnumValues())) {
+            Object enumValue = extractEnumValue(userQuestion, def);
+            if (enumValue != null) {
+                return enumValue;
+            }
+        }
+        return switch (type) {
+            case "boolean" -> extractBooleanValue(userQuestion, paramName, def);
+            case "number", "integer" -> extractNumericValue(userQuestion, paramName, type);
+            case "string" -> extractStringValue(userQuestion, tool, paramName, def);
+            default -> null;
+        };
+    }
+
+    private Object extractEnumValue(String userQuestion, MCPTool.ParameterDef def) {
+        String normalizedQuestion = userQuestion.toLowerCase(Locale.ROOT);
+        for (String enumValue : def.getEnumValues()) {
+            if (StrUtil.isBlank(enumValue)) {
+                continue;
+            }
+            if (normalizedQuestion.contains(enumValue.toLowerCase(Locale.ROOT))) {
+                return enumValue;
+            }
+        }
+        return null;
+    }
+
+    private Object extractBooleanValue(String userQuestion, String paramName, MCPTool.ParameterDef def) {
+        String normalizedQuestion = userQuestion.toLowerCase(Locale.ROOT);
+        String normalizedName = paramName.toLowerCase(Locale.ROOT);
+        if (normalizedQuestion.contains(normalizedName)) {
+            if (containsAny(normalizedQuestion, "true", "是", "开启", "需要", "打开", "启用")) {
+                return true;
+            }
+            if (containsAny(normalizedQuestion, "false", "否", "关闭", "不要", "禁用")) {
+                return false;
+            }
+        }
+        if (containsAny(normalizedQuestion, "true", "false")) {
+            return normalizedQuestion.contains("true");
+        }
+        if (CollUtil.isNotEmpty(def.getEnumValues())) {
+            return null;
+        }
+        return null;
+    }
+
+    private Object extractNumericValue(String userQuestion, String paramName, String type) {
+        Pattern namedNumberPattern = Pattern.compile(Pattern.quote(paramName) + "\\s*[:=：]?\\s*(-?\\d+(?:\\.\\d+)?)", Pattern.CASE_INSENSITIVE);
+        Matcher namedMatcher = namedNumberPattern.matcher(userQuestion);
+        if (namedMatcher.find()) {
+            return castNumericValue(namedMatcher.group(1), type);
+        }
+        Pattern bareNumberPattern = Pattern.compile("(-?\\d+(?:\\.\\d+)?)");
+        Matcher bareMatcher = bareNumberPattern.matcher(userQuestion);
+        if (bareMatcher.find()) {
+            return castNumericValue(bareMatcher.group(1), type);
+        }
+        return null;
+    }
+
+    private Object castNumericValue(String rawNumber, String type) {
+        if (!NumberUtil.isNumber(rawNumber)) {
+            return null;
+        }
+        double value = NumberUtil.parseDouble(rawNumber);
+        if ("integer".equals(type)) {
+            return (int) value;
+        }
+        if (value == Math.floor(value) && !Double.isInfinite(value)) {
+            if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
+                return (int) value;
+            }
+            if (value >= Long.MIN_VALUE && value <= Long.MAX_VALUE) {
+                return (long) value;
+            }
+        }
+        return value;
+    }
+
+    private Object extractStringValue(String userQuestion, MCPTool tool, String paramName, MCPTool.ParameterDef def) {
+        Pattern quotedPattern = Pattern.compile(Pattern.quote(paramName) + "\\s*[:=：]?\\s*[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+        Matcher quotedMatcher = quotedPattern.matcher(userQuestion);
+        if (quotedMatcher.find()) {
+            return quotedMatcher.group(1).trim();
+        }
+        Pattern namedPattern = Pattern.compile(Pattern.quote(paramName) + "\\s*[:=：]?\\s*([^,，。;；]+)", Pattern.CASE_INSENSITIVE);
+        Matcher namedMatcher = namedPattern.matcher(userQuestion);
+        if (namedMatcher.find()) {
+            String candidate = trimTrailingParameterTokens(tool, paramName, namedMatcher.group(1).trim());
+            if (StrUtil.isNotBlank(candidate)) {
+                return candidate;
+            }
+        }
+        if (hasSingleRequiredStringParameter(tool, paramName, def)) {
+            return StrUtil.blankToDefault(userQuestion.trim(), null);
+        }
+        return null;
+    }
+
+    private String trimTrailingParameterTokens(MCPTool tool, String currentParamName, String candidate) {
+        if (tool == null || tool.getParameters() == null || tool.getParameters().size() <= 1) {
+            return candidate;
+        }
+        String trimmed = candidate;
+        for (String paramName : tool.getParameters().keySet()) {
+            if (StrUtil.equalsIgnoreCase(paramName, currentParamName)) {
+                continue;
+            }
+            Pattern nextParamPattern = Pattern.compile("(?i)\\s+" + Pattern.quote(paramName) + "\\s*[:=：]?.*$");
+            Matcher matcher = nextParamPattern.matcher(trimmed);
+            if (matcher.find()) {
+                trimmed = trimmed.substring(0, matcher.start()).trim();
+            }
+        }
+        return trimmed;
+    }
+
+    private boolean hasSingleRequiredStringParameter(MCPTool tool, String paramName, MCPTool.ParameterDef def) {
+        return tool != null
+                && tool.getParameters() != null
+                && tool.getParameters().size() == 1
+                && tool.getParameters().containsKey(paramName)
+                && def.isRequired()
+                && "string".equals(normalizeType(def.getType()));
+    }
+
+    private boolean hasRequiredParameters(Map<String, Object> extracted, MCPTool tool) {
+        for (Map.Entry<String, MCPTool.ParameterDef> entry : tool.getParameters().entrySet()) {
+            if (entry.getValue() != null && entry.getValue().isRequired() && !extracted.containsKey(entry.getKey())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean containsAny(String source, String... candidates) {
+        for (String candidate : candidates) {
+            if (source.contains(candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String normalizeType(String type) {
+        return StrUtil.blankToDefault(type, "string").trim().toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -149,7 +361,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         if (StrUtil.isBlank(raw)) {
             return new HashMap<>();
         }
-        // 清理可能的 markdown 代码块
         String cleaned = LLMResponseCleaner.stripMarkdownCodeFence(raw);
         JsonElement element = JsonParser.parseString(cleaned);
         if (!element.isJsonObject()) {
@@ -158,7 +369,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         }
         JsonObject obj = element.getAsJsonObject();
         Map<String, Object> result = new HashMap<>();
-        // 只提取工具定义中声明的参数
         for (String paramName : tool.getParameters().keySet()) {
             if (obj.has(paramName) && !obj.get(paramName).isJsonNull()) {
                 JsonElement value = obj.get(paramName);
@@ -201,7 +411,6 @@ public class LLMMCPParameterExtractor implements MCPParameterExtractor {
         }
         return null;
     }
-
 
     /**
      * 填充默认值

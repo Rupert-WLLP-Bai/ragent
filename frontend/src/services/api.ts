@@ -1,9 +1,14 @@
 import axios from "axios";
-import { toast } from "sonner";
 
 import { storage } from "@/utils/storage";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+
+export type ApiClientHandlers = {
+  onUnauthorized?: (message: string) => void;
+};
+
+const apiClientHandlers: ApiClientHandlers = {};
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -16,6 +21,14 @@ export function setAuthToken(token: string | null) {
   } else {
     delete api.defaults.headers.common.Authorization;
   }
+}
+
+export function setApiClientHandlers(handlers: ApiClientHandlers) {
+  apiClientHandlers.onUnauthorized = handlers.onUnauthorized;
+}
+
+function notifyUnauthorized(message: string) {
+  apiClientHandlers.onUnauthorized?.(message);
 }
 
 api.interceptors.request.use((config) => {
@@ -34,10 +47,7 @@ api.interceptors.response.use(
         const message = payload.message || "请求失败";
         const isAuthExpired = typeof message === "string" && message.includes("未登录");
         if (isAuthExpired) {
-          storage.clearAuth();
-          if (window.location.pathname !== "/login") {
-            window.location.href = "/login";
-          }
+          notifyUnauthorized(message);
         }
         return Promise.reject(new Error(message));
       }
@@ -47,12 +57,8 @@ api.interceptors.response.use(
   },
   (error) => {
     if (error?.response?.status === 401) {
-      storage.clearAuth();
-      if (window.location.pathname !== "/login") {
-        window.location.href = "/login";
-      }
+      notifyUnauthorized(error?.message || "登录状态已过期，请重新登录");
     }
-    toast.error(error?.message || "网络错误");
     return Promise.reject(error);
   }
 );

@@ -41,9 +41,9 @@ class DeduplicationPostProcessorTests {
 
     @Test
     void shouldKeepHighestScoreForDuplicateChunksAcrossChannels() {
-        RetrievedChunk vectorDuplicate = chunk("shared", "same text", 0.5f);
-        RetrievedChunk intentDuplicate = chunk("shared", "same text", 0.9f);
-        RetrievedChunk keywordOnly = chunk("keyword-only", "keyword text", 0.7f);
+        RetrievedChunk vectorDuplicate = chunk("shared", "same text", 0.5f, "vector_global");
+        RetrievedChunk intentDuplicate = chunk("shared", "same text", 0.9f, "employee_manual");
+        RetrievedChunk keywordOnly = chunk("keyword-only", "keyword text", 0.7f, "keyword_index");
 
         List<RetrievedChunk> result = processor.process(
                 List.of(),
@@ -58,6 +58,8 @@ class DeduplicationPostProcessorTests {
         assertEquals(2, result.size());
         assertEquals(List.of("shared", "keyword-only"), result.stream().map(RetrievedChunk::getId).toList());
         assertEquals(0.9f, result.get(0).getScore());
+        assertEquals("employee_manual", result.get(0).getProvenance().get("collection"));
+        assertEquals("employee_manual,vector_global", result.get(0).getProvenance().get("merged_collections"));
     }
 
     @Test
@@ -85,10 +87,15 @@ class DeduplicationPostProcessorTests {
     }
 
     private static RetrievedChunk chunk(String id, String text, float score) {
+        return chunk(id, text, score, null);
+    }
+
+    private static RetrievedChunk chunk(String id, String text, float score, String collection) {
         return RetrievedChunk.builder()
                 .id(id)
                 .text(text)
                 .score(score)
+                .provenance(collection == null ? null : java.util.Map.of("collection", collection))
                 .build();
     }
 }

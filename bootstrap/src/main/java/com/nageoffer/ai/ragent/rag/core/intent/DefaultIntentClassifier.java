@@ -44,6 +44,8 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.INTENT_CLASSIFIER_PROMPT_PATH;
@@ -62,6 +64,7 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
     private final IntentNodeMapper intentNodeMapper;
     private final PromptTemplateLoader promptTemplateLoader;
     private final IntentTreeCacheManager intentTreeCacheManager;
+    private final AtomicReference<IntentTreeSnapshot> intentTreeSnapshotCache = new AtomicReference<>();
 
     @PostConstruct
     public void init() {
@@ -85,24 +88,20 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
     }
 
     /**
-     * 从Redis加载意图树并构建内存结构
-     * 每次调用都会重新从Redis读取，确保数据是最新的
+     * 从Redis加载意图树并构建可复用快照
+     * 每次调用仍会读取最新树数据，但会复用未变化树的派生结构，减少 flatten 与 prompt 重建成本
      */
     private IntentTreeData loadIntentTreeData() {
-        // 1. 从Redis读取（如果不存在会自动从数据库加载）
-        List<IntentNode> roots = intentTreeCacheManager.getIntentTreeFromCache();
-
-        // 2. 如果Redis也没有，从数据库加载并缓存
+        List<IntentNode> roots = loadIntentTreeRoots();
         if (CollUtil.isEmpty(roots)) {
-            roots = loadIntentTreeFromDB();
-            if (!roots.isEmpty()) {
-                intentTreeCacheManager.saveIntentTreeToCache(roots);
-            }
+            intentTreeSnapshotCache.set(null);
+            return new IntentTreeData(List.of(), List.of(), Map.of(), new CachedValue<>(() -> ""));
         }
 
-        // 3. 构建内存结构（临时使用）
-        if (CollUtil.isEmpty(roots)) {
-            return new IntentTreeData(List.of(), List.of(), Map.of());
+        String treeSignature = buildTreeSignature(roots);
+        IntentTreeSnapshot cachedSnapshot = intentTreeSnapshotCache.get();
+        if (cachedSnapshot != null && treeSignature.equals(cachedSnapshot.signature())) {
+            return cachedSnapshot.data();
         }
 
         List<IntentNode> allNodes = flatten(roots);
@@ -112,9 +111,10 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
         Map<String, IntentNode> id2Node = allNodes.stream()
                 .collect(Collectors.toMap(IntentNode::getId, n -> n));
 
+        IntentTreeData data = new IntentTreeData(allNodes, leafNodes, id2Node, new CachedValue<>(() -> buildPrompt(leafNodes)));
+        intentTreeSnapshotCache.set(new IntentTreeSnapshot(treeSignature, data));
         log.debug("意图树数据加载完成, 总节点数: {}, 叶子节点数: {}", allNodes.size(), leafNodes.size());
-
-        return new IntentTreeData(allNodes, leafNodes, id2Node);
+        return data;
     }
 
     @Override
@@ -132,8 +132,65 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
     private record IntentTreeData(
             List<IntentNode> allNodes,
             List<IntentNode> leafNodes,
-            Map<String, IntentNode> id2Node
+            Map<String, IntentNode> id2Node,
+            CachedValue<String> prompt
     ) {
+    }
+
+    private static final class CachedValue<T> {
+
+        private final Supplier<T> supplier;
+        private volatile T value;
+
+        private CachedValue(Supplier<T> supplier) {
+            this.supplier = supplier;
+        }
+
+        private T get() {
+            T cached = value;
+            if (cached != null) {
+                return cached;
+            }
+            synchronized (this) {
+                if (value == null) {
+                    value = supplier.get();
+                }
+                return value;
+            }
+        }
+    }
+
+    private record IntentTreeSnapshot(
+            String signature,
+            IntentTreeData data
+    ) {
+    }
+
+    List<IntentNode> loadIntentTreeRoots() {
+        List<IntentNode> roots = intentTreeCacheManager.getIntentTreeFromCache();
+        if (CollUtil.isEmpty(roots)) {
+            roots = loadIntentTreeFromDB();
+            if (!roots.isEmpty()) {
+                intentTreeCacheManager.saveIntentTreeToCache(roots);
+            }
+        }
+        return roots;
+    }
+
+    private String buildTreeSignature(List<IntentNode> roots) {
+        List<IntentNode> nodes = flatten(roots);
+        return nodes.stream()
+                .map(node -> String.join("|",
+                        node.getId(),
+                        node.getParentId() == null ? "" : node.getParentId(),
+                        node.getName() == null ? "" : node.getName(),
+                        node.getDescription() == null ? "" : node.getDescription(),
+                        node.getFullPath() == null ? "" : node.getFullPath(),
+                        node.getExamples() == null ? "" : String.join(",", node.getExamples()),
+                        node.getKind() == null ? "" : node.getKind().name(),
+                        node.getMcpToolId() == null ? "" : node.getMcpToolId()
+                ))
+                .collect(Collectors.joining("\n"));
     }
 
     private List<IntentNode> flatten(List<IntentNode> roots) {
@@ -160,7 +217,7 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
         // 每次都从Redis读取最新数据
         IntentTreeData data = loadIntentTreeData();
 
-        String systemPrompt = buildPrompt(data.leafNodes);
+        String systemPrompt = data.prompt().get();
         ChatRequest request = ChatRequest.builder()
                 .messages(List.of(
                         ChatMessage.system(systemPrompt),
