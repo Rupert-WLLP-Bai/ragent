@@ -45,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.INTENT_CLASSIFIER_PROMPT_PATH;
@@ -94,7 +95,7 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
         List<IntentNode> roots = loadIntentTreeRoots();
         if (CollUtil.isEmpty(roots)) {
             intentTreeSnapshotCache.set(null);
-            return new IntentTreeData(List.of(), List.of(), Map.of(), "");
+            return new IntentTreeData(List.of(), List.of(), Map.of(), new CachedValue<>(() -> ""));
         }
 
         String treeSignature = buildTreeSignature(roots);
@@ -109,9 +110,8 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
                 .collect(Collectors.toList());
         Map<String, IntentNode> id2Node = allNodes.stream()
                 .collect(Collectors.toMap(IntentNode::getId, n -> n));
-        String prompt = buildPrompt(leafNodes);
 
-        IntentTreeData data = new IntentTreeData(allNodes, leafNodes, id2Node, prompt);
+        IntentTreeData data = new IntentTreeData(allNodes, leafNodes, id2Node, new CachedValue<>(() -> buildPrompt(leafNodes)));
         intentTreeSnapshotCache.set(new IntentTreeSnapshot(treeSignature, data));
         log.debug("意图树数据加载完成, 总节点数: {}, 叶子节点数: {}", allNodes.size(), leafNodes.size());
         return data;
@@ -133,8 +133,31 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
             List<IntentNode> allNodes,
             List<IntentNode> leafNodes,
             Map<String, IntentNode> id2Node,
-            String prompt
+            CachedValue<String> prompt
     ) {
+    }
+
+    private static final class CachedValue<T> {
+
+        private final Supplier<T> supplier;
+        private volatile T value;
+
+        private CachedValue(Supplier<T> supplier) {
+            this.supplier = supplier;
+        }
+
+        private T get() {
+            T cached = value;
+            if (cached != null) {
+                return cached;
+            }
+            synchronized (this) {
+                if (value == null) {
+                    value = supplier.get();
+                }
+                return value;
+            }
+        }
     }
 
     private record IntentTreeSnapshot(
@@ -194,7 +217,7 @@ public class DefaultIntentClassifier implements IntentClassifier, IntentNodeRegi
         // 每次都从Redis读取最新数据
         IntentTreeData data = loadIntentTreeData();
 
-        String systemPrompt = data.prompt();
+        String systemPrompt = data.prompt().get();
         ChatRequest request = ChatRequest.builder()
                 .messages(List.of(
                         ChatMessage.system(systemPrompt),

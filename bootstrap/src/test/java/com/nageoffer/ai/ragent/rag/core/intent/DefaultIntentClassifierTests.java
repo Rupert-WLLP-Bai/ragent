@@ -29,8 +29,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static com.nageoffer.ai.ragent.rag.constant.RAGConstant.INTENT_CLASSIFIER_PROMPT_PATH;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -49,6 +52,23 @@ class DefaultIntentClassifierTests {
 
     @Mock
     private IntentTreeCacheManager intentTreeCacheManager;
+
+    @Test
+    void shouldDelayPromptRenderingUntilClassificationRuns() {
+        DefaultIntentClassifier classifier = new TestableDefaultIntentClassifier(
+                llmService,
+                intentNodeMapper,
+                promptTemplateLoader,
+                intentTreeCacheManager,
+                List.of(List.of(singleLeaf("leaf-1", "考勤制度")))
+        );
+
+        IntentNode node = classifier.getNodeById("leaf-1");
+
+        assertNotNull(node);
+        assertEquals("leaf-1", node.getId());
+        verify(promptTemplateLoader, never()).render(eq(INTENT_CLASSIFIER_PROMPT_PATH), any());
+    }
 
     @Test
     void shouldReusePromptWhenIntentTreeSnapshotIsUnchanged() {
