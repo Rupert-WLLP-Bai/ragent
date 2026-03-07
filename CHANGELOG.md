@@ -24,3 +24,4 @@
 - Added focused intent-classifier tests covering prompt reuse when the tree snapshot is unchanged and prompt rebuild when the tree snapshot changes.
 - Added a shared `AdminPageShell` with reusable list-state and pagination helpers, applied it to `UserListPage` and `SampleQuestionPage`, and lightly aligned `SystemSettingsPage` loading/empty presentation with the same admin shell.
 - Verified the frontend with lint, unit tests, coverage, production build, and Playwright e2e after the routing, shell subscription, API side-effect boundary, dashboard structure, and admin shell convergence changes.
+- Verified the backend intent-classifier optimization with `"/home/pejoy/code/ragent/.worktrees/optimization-implementation/mvnw" -f "/home/pejoy/code/ragent/.worktrees/optimization-implementation/pom.xml" -pl bootstrap -am -Dtest=DefaultIntentClassifierTests -Dsurefire.failIfNoSpecifiedTests=false test`.
