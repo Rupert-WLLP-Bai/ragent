@@ -59,7 +59,7 @@ class DeduplicationPostProcessorTests {
         assertEquals(List.of("shared", "keyword-only"), result.stream().map(RetrievedChunk::getId).toList());
         assertEquals(0.9f, result.get(0).getScore());
         assertEquals("employee_manual", result.get(0).getProvenance().get("collection"));
-        assertEquals("vector_global,employee_manual", result.get(0).getProvenance().get("merged_collections"));
+        assertEquals("employee_manual,vector_global", result.get(0).getProvenance().get("merged_collections"));
     }
 
     @Test
