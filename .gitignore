@@ -43,3 +43,4 @@ dist/
 .env.local
 frontend/playwright-report/
 frontend/test-results/
+.worktrees/
