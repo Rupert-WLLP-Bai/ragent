@@ -85,6 +85,29 @@ class RetrievalEngineTests {
         assertSame(policyChunk, result.getIntentChunks().get("intent-policy").get(0));
     }
 
+    @Test
+    void shouldNotFallBackToAllChunksWhenIntentCollectionHasNoProvenanceMatch() {
+        Executor directExecutor = Runnable::run;
+        RetrievalEngine engine = new RetrievalEngine(
+                contextFormatter,
+                mcpParameterExtractor,
+                mcpToolRegistry,
+                multiChannelRetrievalEngine,
+                directExecutor,
+                directExecutor
+        );
+        NodeScore employeeIntent = kbIntent("intent-employee", "employee_manual");
+        RetrievedChunk unrelatedChunk = chunk("c1", "别的手册片段", "policy_handbook");
+        SubQuestionIntent subQuestionIntent = new SubQuestionIntent("请介绍请假制度", List.of(employeeIntent));
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(subQuestionIntent), 5))
+                .thenReturn(List.of(unrelatedChunk));
+        when(contextFormatter.formatKbContext(anyList(), anyMap(), anyInt())).thenReturn("formatted-kb");
+
+        RetrievalContext result = engine.retrieve(List.of(subQuestionIntent), 5);
+
+        assertTrue(result.getIntentChunks().get("intent-employee").isEmpty());
+    }
+
     private static NodeScore kbIntent(String id, String collectionName) {
         return NodeScore.builder()
                 .node(IntentNode.builder()

@@ -58,8 +58,8 @@ class DeduplicationPostProcessorTests {
         assertEquals(2, result.size());
         assertEquals(List.of("shared", "keyword-only"), result.stream().map(RetrievedChunk::getId).toList());
         assertEquals(0.9f, result.get(0).getScore());
-        assertTrue(result.get(0).getProvenance().containsValue("employee_manual"));
-        assertTrue(result.get(0).getProvenance().containsValue("vector_global"));
+        assertEquals("employee_manual", result.get(0).getProvenance().get("collection"));
+        assertEquals("vector_global,employee_manual", result.get(0).getProvenance().get("merged_collections"));
     }
 
     @Test
@@ -95,7 +95,7 @@ class DeduplicationPostProcessorTests {
                 .id(id)
                 .text(text)
                 .score(score)
-                .provenance(collection == null ? null : java.util.Map.of("collection-" + score, collection))
+                .provenance(collection == null ? null : java.util.Map.of("collection", collection))
                 .build();
     }
 }

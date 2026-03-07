@@ -233,10 +233,12 @@ public class RetrievalEngine {
             if (node == null || StrUtil.isBlank(node.getId())) {
                 continue;
             }
-            List<RetrievedChunk> matchedChunks = StrUtil.isNotBlank(node.getCollectionName())
-                    ? chunksByCollection.get(node.getCollectionName())
-                    : null;
-            intentChunks.put(node.getId(), CollUtil.isNotEmpty(matchedChunks) ? matchedChunks : chunks);
+            if (StrUtil.isNotBlank(node.getCollectionName())) {
+                List<RetrievedChunk> matchedChunks = chunksByCollection.get(node.getCollectionName());
+                intentChunks.put(node.getId(), CollUtil.isNotEmpty(matchedChunks) ? matchedChunks : List.of());
+                continue;
+            }
+            intentChunks.put(node.getId(), chunks);
         }
         return intentChunks;
     }

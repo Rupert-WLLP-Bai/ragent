@@ -90,12 +90,24 @@ public class DeduplicationPostProcessor implements SearchResultPostProcessor {
     private RetrievedChunk mergeChunk(RetrievedChunk existing, RetrievedChunk candidate) {
         RetrievedChunk preferred = compareScore(candidate, existing) > 0 ? candidate : existing;
         Map<String, String> mergedProvenance = new LinkedHashMap<>();
+        Map<String, String> preferredProvenance = preferred.getProvenance();
+        if (preferredProvenance != null) {
+            mergedProvenance.putAll(preferredProvenance);
+        }
+
+        String existingCollection = existing.getProvenance() == null ? null : existing.getProvenance().get("collection");
+        String candidateCollection = candidate.getProvenance() == null ? null : candidate.getProvenance().get("collection");
+        if (existingCollection != null && candidateCollection != null && !existingCollection.equals(candidateCollection)) {
+            mergedProvenance.put("merged_collections", existingCollection + "," + candidateCollection);
+        }
+
         if (existing.getProvenance() != null) {
-            mergedProvenance.putAll(existing.getProvenance());
+            existing.getProvenance().forEach((key, value) -> mergedProvenance.putIfAbsent(key, value));
         }
         if (candidate.getProvenance() != null) {
-            mergedProvenance.putAll(candidate.getProvenance());
+            candidate.getProvenance().forEach((key, value) -> mergedProvenance.putIfAbsent(key, value));
         }
+
         return RetrievedChunk.builder()
                 .id(preferred.getId())
                 .text(preferred.getText())
