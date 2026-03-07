@@ -5,9 +5,7 @@ const mocks = vi.hoisted(() => ({
   logoutRequest: vi.fn(),
   getCurrentUser: vi.fn(),
   setAuthToken: vi.fn(),
-  cancelGeneration: vi.fn(),
-  toastSuccess: vi.fn(),
-  toastError: vi.fn()
+  cancelGeneration: vi.fn()
 }));
 
 vi.mock("@/services/authService", () => ({
@@ -24,13 +22,6 @@ vi.mock("@/stores/chatStore", () => ({
   useChatStore: {
     getState: () => ({ cancelGeneration: mocks.cancelGeneration }),
     setState: vi.fn()
-  }
-}));
-
-vi.mock("sonner", () => ({
-  toast: {
-    success: mocks.toastSuccess,
-    error: mocks.toastError
   }
 }));
 
@@ -51,8 +42,6 @@ describe("authStore", () => {
     mocks.getCurrentUser.mockReset();
     mocks.setAuthToken.mockReset();
     mocks.cancelGeneration.mockReset();
-    mocks.toastSuccess.mockReset();
-    mocks.toastError.mockReset();
   });
 
   it("stores auth data after a successful login", async () => {
@@ -70,12 +59,12 @@ describe("authStore", () => {
       avatar: ""
     });
 
-    await useAuthStore.getState().login("demo", "secret");
+    const user = await useAuthStore.getState().login("demo", "secret");
 
+    expect(user).toMatchObject({ userId: "u1", token: "token-123" });
     expect(storage.getToken()).toBe("token-123");
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(mocks.setAuthToken).toHaveBeenCalledWith("token-123");
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("登录成功");
   });
 
   it("clears auth data on logout", async () => {
@@ -93,6 +82,25 @@ describe("authStore", () => {
     expect(storage.getToken()).toBeNull();
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(mocks.setAuthToken).toHaveBeenCalledWith(null);
-    expect(mocks.toastSuccess).toHaveBeenCalledWith("已退出登录");
+  });
+
+  it("expires the session without UI side effects", () => {
+    storage.setToken("token-123");
+    storage.setUser({ userId: "u1", username: "demo", role: "admin", token: "token-123" });
+    useAuthStore.setState({
+      user: { userId: "u1", username: "demo", role: "admin", token: "token-123" },
+      token: "token-123",
+      isAuthenticated: true,
+      isLoading: false,
+      authFailureReason: null
+    });
+
+    useAuthStore.getState().expireSession();
+
+    expect(storage.getToken()).toBeNull();
+    expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(useAuthStore.getState().consumeAuthFailureReason()).toBe("session_expired");
+    expect(useAuthStore.getState().consumeAuthFailureReason()).toBeNull();
+    expect(mocks.setAuthToken).toHaveBeenCalledWith(null);
   });
 });

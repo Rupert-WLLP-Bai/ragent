@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Eye, EyeOff, Lock, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,11 +10,19 @@ import { useAuthStore } from "@/stores/authStore";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading } = useAuthStore();
+  const { login, isLoading, consumeAuthFailureReason } = useAuthStore();
   const [showPassword, setShowPassword] = React.useState(false);
   const [remember, setRemember] = React.useState(true);
   const [form, setForm] = React.useState({ username: "", password: "" });
   const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const reason = consumeAuthFailureReason();
+    if (!reason) {
+      return;
+    }
+    toast.error(reason === "session_expired" ? "登录状态已过期，请重新登录" : "请先登录后继续操作");
+  }, [consumeAuthFailureReason]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -27,9 +36,12 @@ export function LoginPage() {
       if (!remember) {
         // 如需仅在内存中保存登录态，可在此扩展。
       }
+      toast.success("登录成功");
       navigate("/chat");
     } catch (err) {
-      setError((err as Error).message || "登录失败，请稍后重试。");
+      const message = (err as Error).message || "登录失败，请稍后重试。";
+      toast.error(message);
+      setError(message);
     }
   };
 

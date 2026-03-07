@@ -12,4 +12,5 @@
 - Added aspect tests covering deferred trace success on SSE completion and error finalization on SSE failure callbacks.
 - Added route-level lazy loading for admin routes so dashboard, knowledge, intent, ingestion, traces, settings, sample question, and user screens load on demand behind router suspense fallbacks.
 - Narrowed shell Zustand subscriptions in the chat header and sidebar so layout chrome listens only to the auth and chat slices it renders instead of subscribing to whole stores.
-- Verified the frontend with lint, unit tests, coverage, production build, and Playwright e2e after the routing and shell subscription changes.
+- Moved low-level frontend API auth side effects upward by replacing axios interceptor toast/redirect logic with an unauthorized callback, handling session expiry in auth store state, and triggering login/logout toasts plus navigation at app/page boundaries.
+- Verified the frontend with lint, unit tests, coverage, production build, and Playwright e2e after the routing, shell subscription, and API side-effect boundary changes.
