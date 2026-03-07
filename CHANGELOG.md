@@ -18,4 +18,7 @@
 - Narrowed shell Zustand subscriptions in the chat header and sidebar so layout chrome listens only to the auth and chat slices it renders instead of subscribing to whole stores.
 - Moved low-level frontend API auth side effects upward by replacing axios interceptor toast/redirect logic with an unauthorized callback, handling session expiry in auth store state, and triggering login/logout toasts plus navigation at app/page boundaries.
 - Split DashboardPage's right-rail AI performance and operational insight widgets into a dedicated `DashboardSidebar` component so the admin dashboard page keeps data orchestration while the sidebar presentation lives in a focused module.
-- Verified the frontend with lint, unit tests, coverage, production build, and Playwright e2e after the routing, shell subscription, API side-effect boundary, and dashboard structure changes.
+- Added a deterministic typed fast path for simple MCP parameter schemas so obvious string/boolean/number/enum inputs can bypass LLM extraction, while ambiguous or incomplete cases still fall back to the existing LLM path.
+- Added focused MCP extraction tests covering simple typed fast-path hits, enum extraction, and backward-compatible LLM fallback for incomplete required parameters.
+- Added a shared `AdminPageShell` with reusable list-state and pagination helpers, applied it to `UserListPage` and `SampleQuestionPage`, and lightly aligned `SystemSettingsPage` loading/empty presentation with the same admin shell.
+- Verified the frontend with lint, unit tests, coverage, production build, and Playwright e2e after the routing, shell subscription, API side-effect boundary, dashboard structure, and admin shell convergence changes.
