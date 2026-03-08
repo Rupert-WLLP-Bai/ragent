@@ -115,6 +115,22 @@
 
 ### 3. 后端启动命令
 
+优先推荐直接用脚本：
+
+```bash
+bash scripts/start-local.sh
+bash scripts/check-local.sh
+```
+
+> 注意：`scripts/start-local.sh` 只负责启动 MCP、后端、前端。首次启动时如果本地还没有 `rag-health` bucket 或 `rag_default_store` collection，仍然需要先按下面文档准备好这两个健康检查资源。
+
+上面两个脚本分别负责：
+
+- `scripts/start-local.sh`：按已验证顺序启动 MCP、后端、前端
+- `scripts/check-local.sh`：检查端口、前端、后端 health/readiness、MCP tools/list
+
+下面的手动命令保留为参考。
+
 #### 3.1 启动 MCP Server
 
 ```bash

@@ -4,6 +4,7 @@
 
 ### In progress
 - Documented a verified local startup playbook in `README.md`, including required service startup order, concrete local credentials used in the current environment, backend/frontend/MCP startup commands, health/readiness checks, and the exact Redis/MySQL/RustFS/Milvus/MCP pitfalls encountered during bring-up.
+- Added `scripts/start-local.sh` and `scripts/check-local.sh` so local bring-up and diagnostics no longer depend on manually reassembling commands each time.
 
 ## 2026-03-07
 
