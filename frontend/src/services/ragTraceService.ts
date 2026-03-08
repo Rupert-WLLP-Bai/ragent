@@ -1,4 +1,5 @@
 import { api } from "@/services/api";
+import type { TraceDecisionStep } from "@/types";
 
 export interface RagTraceRun {
   traceId: string;
@@ -14,6 +15,17 @@ export interface RagTraceRun {
   durationMs?: number | null;
   startTime?: string | null;
   endTime?: string | null;
+  route?: string | null;
+  stage?: string | null;
+  summary?: string | null;
+  selectedModel?: string | null;
+  modelMode?: string | null;
+  thinkingMode?: string | null;
+  requestPlan?: string | null;
+  retrievalPlan?: string | null;
+  decisions?: TraceDecisionStep[] | null;
+  metadata?: Record<string, unknown> | null;
+  extra?: Record<string, unknown> | null;
 }
 
 export interface RagTraceNode {
@@ -30,6 +42,17 @@ export interface RagTraceNode {
   durationMs?: number | null;
   startTime?: string | null;
   endTime?: string | null;
+  route?: string | null;
+  stage?: string | null;
+  summary?: string | null;
+  selectedModel?: string | null;
+  modelMode?: string | null;
+  thinkingMode?: string | null;
+  requestPlan?: string | null;
+  retrievalPlan?: string | null;
+  decisions?: TraceDecisionStep[] | null;
+  metadata?: Record<string, unknown> | null;
+  extra?: Record<string, unknown> | null;
 }
 
 export interface RagTraceDetail {

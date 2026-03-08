@@ -1,4 +1,4 @@
-import type { RagTraceNode } from "@/services/ragTraceService";
+import type { RagTraceNode, RagTraceRun } from "@/services/ragTraceService";
 
 export const PAGE_SIZE = 10;
 
@@ -98,4 +98,40 @@ export const resolveNodeDuration = (node: RagTraceNode): number => {
   const end = toTimestamp(node.endTime);
   if (start !== null && end !== null && end >= start) return end - start;
   return 0;
+};
+
+export const stringifyTracePayload = (value: unknown): string | null => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+};
+
+export const resolveTraceField = (
+  source: Pick<
+    RagTraceRun,
+    | "requestPlan"
+    | "retrievalPlan"
+    | "summary"
+    | "route"
+    | "stage"
+    | "selectedModel"
+    | "modelMode"
+    | "thinkingMode"
+    | "metadata"
+    | "extra"
+  >,
+  key: keyof Pick<RagTraceRun, "requestPlan" | "retrievalPlan" | "summary" | "route" | "stage" | "selectedModel" | "modelMode" | "thinkingMode">
+): string | null => {
+  const direct = stringifyTracePayload(source[key]);
+  if (direct) return direct;
+  const metadataValue = source.metadata && typeof source.metadata === "object" ? source.metadata[key] : undefined;
+  const extraValue = source.extra && typeof source.extra === "object" ? source.extra[key] : undefined;
+  return stringifyTracePayload(metadataValue) ?? stringifyTracePayload(extraValue);
 };

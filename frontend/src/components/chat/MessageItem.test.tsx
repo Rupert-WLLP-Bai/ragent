@@ -55,4 +55,30 @@ describe("MessageItem", () => {
 
     expect(screen.getByText("推理细节")).toBeInTheDocument();
   });
+
+  it("renders decision trace details", () => {
+    render(
+      <MessageItem
+        message={{
+          id: "msg-3",
+          role: "assistant",
+          content: "最终答案",
+          status: "done",
+          trace: {
+            route: "adaptive",
+            selectedModel: "gpt-lite",
+            requestPlan: "先规划再回答",
+            retrievalPlan: "仅检索高相关文档",
+            decisions: [{ key: "thinking", label: "Thinking Gate", value: "adaptive", reason: "检测到复杂请求" }]
+          }
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Decision Trace/ }));
+
+    expect(screen.getByText("先规划再回答")).toBeInTheDocument();
+    expect(screen.getByText("仅检索高相关文档")).toBeInTheDocument();
+    expect(screen.getByText("检测到复杂请求")).toBeInTheDocument();
+  });
 });

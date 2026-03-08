@@ -20,15 +20,17 @@ describe("createStreamResponse", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       createSseResponse([
         'event: meta\ndata: {"conversationId":"c1","taskId":"t1"}\n\n',
+        'event: trace\ndata: {"route":"adaptive","requestPlan":"plan-a"}\n\n',
         'event: message\ndata: {"type":"think","delta":"分析中"}\n\n',
-        'event: message\ndata: {"type":"response","delta":"答案"}\n\n',
+        'event: message\ndata: {"type":"response","delta":"答案","trace":{"route":"adaptive","selectedModel":"gpt-lite"}}\n\n',
         'event: title\ndata: {"title":"新的标题"}\n\n',
-        'event: finish\ndata: {"messageId":"m1","title":"完成标题"}\n\n',
+        'event: finish\ndata: {"messageId":"m1","title":"完成标题","trace":{"route":"adaptive","retrievalPlan":"retrieve-b"}}\n\n',
         "event: done\ndata: [DONE]\n\n"
       ].join(""))
     );
 
     const onMeta = vi.fn();
+    const onTrace = vi.fn();
     const onThinking = vi.fn();
     const onMessage = vi.fn();
     const onTitle = vi.fn();
@@ -37,6 +39,7 @@ describe("createStreamResponse", () => {
 
     const stream = createStreamResponse({ url: "http://example.test/sse", retryCount: 0 }, {
       onMeta,
+      onTrace,
       onThinking,
       onMessage,
       onTitle,
@@ -54,10 +57,20 @@ describe("createStreamResponse", () => {
       })
     );
     expect(onMeta).toHaveBeenCalledWith({ conversationId: "c1", taskId: "t1" });
+    expect(onTrace).toHaveBeenCalledWith({ route: "adaptive", requestPlan: "plan-a" });
     expect(onThinking).toHaveBeenCalledWith({ type: "think", delta: "分析中" });
     expect(onMessage).toHaveBeenCalledTimes(2);
+    expect(onMessage).toHaveBeenCalledWith({
+      type: "response",
+      delta: "答案",
+      trace: { route: "adaptive", selectedModel: "gpt-lite" }
+    });
     expect(onTitle).toHaveBeenCalledWith({ title: "新的标题" });
-    expect(onFinish).toHaveBeenCalledWith({ messageId: "m1", title: "完成标题" });
+    expect(onFinish).toHaveBeenCalledWith({
+      messageId: "m1",
+      title: "完成标题",
+      trace: { route: "adaptive", retrievalPlan: "retrieve-b" }
+    });
     expect(onDone).toHaveBeenCalled();
   });
 

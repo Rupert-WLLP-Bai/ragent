@@ -28,8 +28,10 @@ import {
   formatDuration,
   normalizeStatus,
   resolveNodeDuration,
+  resolveTraceField,
   statusBadgeVariant,
   statusLabel,
+  stringifyTracePayload,
   toTimestamp,
   type TimelineNode
 } from "@/pages/admin/traces/traceUtils";
@@ -116,6 +118,21 @@ function TimeScale({ totalMs }: { totalMs: number }) {
             </div>
         ))}
       </div>
+  );
+}
+
+function TracePlanCard({ title, value }: { title: string; value: string }) {
+  return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium text-slate-700">{title}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <pre className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+          {value}
+        </pre>
+        </CardContent>
+      </Card>
   );
 }
 
@@ -303,6 +320,17 @@ export function RagTraceDetailPage() {
     return { total, failed, success, running, avgDuration, topSlowestId };
   }, [detail?.nodes]);
 
+  const traceSummary = resolveTraceField(selectedRun || {}, "summary");
+  const requestPlan = resolveTraceField(selectedRun || {}, "requestPlan");
+  const retrievalPlan = resolveTraceField(selectedRun || {}, "retrievalPlan");
+  const routeLabel = resolveTraceField(selectedRun || {}, "route");
+  const traceStage = resolveTraceField(selectedRun || {}, "stage");
+  const selectedModel = resolveTraceField(selectedRun || {}, "selectedModel");
+  const modelMode = resolveTraceField(selectedRun || {}, "modelMode");
+  const thinkingMode = resolveTraceField(selectedRun || {}, "thinkingMode");
+  const traceDecisions = selectedRun?.decisions || [];
+  const traceMetadata = stringifyTracePayload(selectedRun?.metadata);
+
   if (detailLoading) {
     return (
         <div className="min-h-[400px] flex items-center justify-center">
@@ -468,6 +496,54 @@ export function RagTraceDetailPage() {
               label="平均耗时"
               value={formatDuration(stats.avgDuration)}
           />
+        </div>
+
+        {(traceSummary || routeLabel || traceStage || selectedModel || modelMode || thinkingMode || traceDecisions.length > 0) ? (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-slate-700">Decision Trace / Route Trace</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {traceSummary ? <p className="text-sm leading-6 text-slate-700">{traceSummary}</p> : null}
+              {(routeLabel || traceStage || selectedModel || modelMode || thinkingMode) ? (
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {routeLabel ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">route: {routeLabel}</span> : null}
+                  {traceStage ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">stage: {traceStage}</span> : null}
+                  {selectedModel ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">model: {selectedModel}</span> : null}
+                  {modelMode ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">modelMode: {modelMode}</span> : null}
+                  {thinkingMode ? <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">thinkingMode: {thinkingMode}</span> : null}
+                </div>
+              ) : null}
+              {traceDecisions.length ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  {traceDecisions.map((decision) => (
+                    <div key={decision.key} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-medium text-slate-500">{decision.label}</span>
+                        {decision.value ? (
+                          <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-700">{decision.value}</span>
+                        ) : null}
+                      </div>
+                      {decision.reason ? <p className="mt-2 text-sm text-slate-600">{decision.reason}</p> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {traceMetadata ? (
+                <details className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <summary className="cursor-pointer text-sm font-medium text-slate-700">原始 trace metadata</summary>
+                  <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg bg-white p-3 text-xs text-slate-600">
+                    {traceMetadata}
+                  </pre>
+                </details>
+              ) : null}
+            </CardContent>
+          </Card>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {requestPlan ? <TracePlanCard title="RequestPlan" value={requestPlan} /> : null}
+          {retrievalPlan ? <TracePlanCard title="RetrievalPlan" value={retrievalPlan} /> : null}
         </div>
 
         {/* 瀑布图 */}

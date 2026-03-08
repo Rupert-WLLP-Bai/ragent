@@ -9,7 +9,7 @@ import {
   renameSession as renameSessionRequest
 } from "@/services/sessionService";
 import { stopTask, submitFeedback } from "@/services/chatService";
-import { buildQuery } from "@/utils/helpers";
+import { buildQuery, resolveAdaptiveThinkingDecision } from "@/utils/helpers";
 import { createStreamResponse } from "@/hooks/useStreamResponse";
 import { storage } from "@/utils/storage";
 
@@ -37,8 +37,8 @@ interface ChatState {
   setDeepThinkingEnabled: (enabled: boolean) => void;
   sendMessage: (content: string) => Promise<void>;
   cancelGeneration: () => void;
-  appendStreamContent: (delta: string) => void;
-  appendThinkingContent: (delta: string) => void;
+  appendStreamContent: (delta: string, trace?: MessageDeltaPayload["trace"]) => void;
+  appendThinkingContent: (delta: string, trace?: MessageDeltaPayload["trace"]) => void;
   submitFeedback: (messageId: string, feedback: FeedbackValue) => Promise<void>;
 }
 
@@ -223,6 +223,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!trimmed) return;
     if (get().isStreaming) return;
     const deepThinkingEnabled = get().deepThinkingEnabled;
+    const thinkingDecision = resolveAdaptiveThinkingDecision({
+      question: trimmed,
+      manualEnabled: deepThinkingEnabled
+    });
+    const modelMode =
+      thinkingDecision.mode === "manual"
+        ? "manual"
+        : thinkingDecision.mode === "adaptive"
+          ? "adaptive"
+          : "default";
     const inputFocusKey = Date.now();
 
     const userMessage: Message = {
@@ -237,9 +247,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id: assistantId,
       role: "assistant",
       content: "",
-      thinking: deepThinkingEnabled ? "" : undefined,
-      isDeepThinking: deepThinkingEnabled,
-      isThinking: deepThinkingEnabled,
+      thinking: thinkingDecision.shouldUseDeepThinking ? "" : undefined,
+      isDeepThinking: thinkingDecision.shouldUseDeepThinking,
+      isThinking: thinkingDecision.shouldUseDeepThinking,
+      trace: {
+        route: modelMode,
+        stage: "request",
+        modelMode,
+        thinkingMode: thinkingDecision.mode,
+        decisions: [
+          {
+            key: "thinking-gate",
+            label: "Thinking Gate",
+            value: thinkingDecision.mode,
+            reason:
+              thinkingDecision.reason === "user_enabled"
+                ? "用户显式开启深度思考"
+                : thinkingDecision.reason === "complex_prompt"
+                  ? "检测到复杂请求，自动切换到深度思考"
+                  : "请求较简单，保留默认低成本路径"
+          }
+        ],
+        summary:
+          thinkingDecision.mode === "adaptive"
+            ? "根据请求复杂度自动开启深度思考"
+            : thinkingDecision.mode === "manual"
+              ? "已按用户显式选择开启深度思考"
+              : "当前请求走默认低成本路径"
+      },
       status: "streaming",
       feedback: null,
       createdAt: new Date().toISOString()
@@ -249,7 +284,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [...state.messages, userMessage, assistantMessage],
       isStreaming: true,
       streamingMessageId: assistantId,
-      thinkingStartAt: deepThinkingEnabled ? Date.now() : null,
+      thinkingStartAt: thinkingDecision.shouldUseDeepThinking ? Date.now() : null,
       inputFocusKey,
       streamTaskId: null,
       cancelRequested: false
@@ -259,7 +294,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const query = buildQuery({
       question: trimmed,
       conversationId: conversationId || undefined,
-      deepThinking: deepThinkingEnabled ? true : undefined
+      deepThinking: thinkingDecision.shouldUseDeepThinking ? true : undefined,
+      thinkingMode: thinkingDecision.mode !== "off" ? thinkingDecision.mode : undefined
     });
     const url = `${API_BASE_URL}/rag/v3/chat${query}`;
     const token = storage.getToken();
@@ -288,16 +324,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       onMessage: (payload: MessageDeltaPayload) => {
         if (!payload || typeof payload !== "object") return;
         if (payload.type !== "response") return;
-        get().appendStreamContent(payload.delta);
+        get().appendStreamContent(payload.delta, payload.trace);
       },
       onThinking: (payload: MessageDeltaPayload) => {
         if (!payload || typeof payload !== "object") return;
         if (payload.type !== "think") return;
-        get().appendThinkingContent(payload.delta);
+        get().appendThinkingContent(payload.delta, payload.trace);
       },
       onReject: (payload: MessageDeltaPayload) => {
         if (!payload || typeof payload !== "object") return;
         get().appendStreamContent(payload.delta);
+      },
+      onTrace: (payload) => {
+        get().appendStreamContent("", payload);
       },
       onFinish: (payload: CompletionPayload) => {
         if (get().streamingMessageId !== assistantId) return;
@@ -328,6 +367,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     id: String(payload.messageId),
                     status: "done",
                     isThinking: false,
+                    trace: payload.trace ?? message.trace,
                     thinkingDuration:
                       message.thinkingDuration ?? computeThinkingDuration(state.thinkingStartAt)
                   }
@@ -342,6 +382,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     ...message,
                     status: "done",
                     isThinking: false,
+                    trace: payload.trace ?? message.trace,
                     thinkingDuration:
                       message.thinkingDuration ?? computeThinkingDuration(state.thinkingStartAt)
                   }
@@ -459,10 +500,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       stopTask(streamTaskId).catch(() => null);
     }
   },
-  appendStreamContent: (delta) => {
-    if (!delta) return;
+  appendStreamContent: (delta, trace) => {
+    if (!delta && !trace) return;
     set((state) => {
-      const shouldFinalizeThinking = state.thinkingStartAt != null;
+      const shouldFinalizeThinking = state.thinkingStartAt != null && Boolean(delta);
       const duration = computeThinkingDuration(state.thinkingStartAt);
       return {
         thinkingStartAt: shouldFinalizeThinking ? null : state.thinkingStartAt,
@@ -471,7 +512,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (message.status === "cancelled" || message.status === "error") return message;
           return {
             ...message,
-            content: message.content + delta,
+            content: delta ? message.content + delta : message.content,
+            trace: trace ?? message.trace,
             isThinking: shouldFinalizeThinking ? false : message.isThinking,
             thinkingDuration:
               shouldFinalizeThinking && !message.thinkingDuration ? duration : message.thinkingDuration
@@ -480,18 +522,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
       };
     });
   },
-  appendThinkingContent: (delta) => {
-    if (!delta) return;
+  appendThinkingContent: (delta, trace) => {
+    if (!delta && !trace) return;
     set((state) => ({
-      thinkingStartAt: state.thinkingStartAt ?? Date.now(),
+      thinkingStartAt: delta ? state.thinkingStartAt ?? Date.now() : state.thinkingStartAt,
       messages: state.messages.map((message) =>
         message.id === state.streamingMessageId &&
         message.status !== "cancelled" &&
         message.status !== "error"
           ? {
               ...message,
-              thinking: `${message.thinking ?? ""}${delta}`,
-              isThinking: true
+              thinking: delta ? `${message.thinking ?? ""}${delta}` : message.thinking,
+              trace: trace ?? message.trace,
+              isThinking: delta ? true : message.isThinking
             }
           : message
       )
