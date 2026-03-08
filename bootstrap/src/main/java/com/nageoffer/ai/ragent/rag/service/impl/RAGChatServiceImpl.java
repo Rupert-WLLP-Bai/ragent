@@ -31,6 +31,8 @@ import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentResolver;
 import com.nageoffer.ai.ragent.rag.core.memory.ConversationMemoryService;
+import com.nageoffer.ai.ragent.rag.core.plan.RequestPlan;
+import com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
@@ -92,9 +94,11 @@ public class RAGChatServiceImpl implements RAGChatService {
 
         RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, history);
         List<SubQuestionIntent> subIntents = intentResolver.resolve(rewriteResult);
+        RequestPlan requestPlan = RequestPlan.start(thinkingEnabled);
 
         GuidanceDecision guidanceDecision = guidanceService.detectAmbiguity(rewriteResult.rewrittenQuestion(), subIntents);
         if (guidanceDecision.isPrompt()) {
+            requestPlan = requestPlan.forGuidancePrompt();
             callback.onContent(guidanceDecision.getPrompt());
             callback.onComplete();
             return;
@@ -103,28 +107,32 @@ public class RAGChatServiceImpl implements RAGChatService {
         boolean allSystemOnly = subIntents.stream()
                 .allMatch(si -> intentResolver.isSystemOnly(si.nodeScores()));
         if (allSystemOnly) {
+            requestPlan = requestPlan.forSystemOnly();
             StreamCancellationHandle handle = streamSystemResponse(rewriteResult.rewrittenQuestion(), callback);
             taskManager.bindHandle(taskId, handle);
             return;
         }
 
-        RetrievalContext ctx = retrievalEngine.retrieve(subIntents, DEFAULT_TOP_K);
+        // 聚合所有意图用于请求级决策与 prompt 规划
+        IntentGroup mergedGroup = intentResolver.mergeIntentGroup(subIntents);
+        RetrievalPlan retrievalPlan = RetrievalPlan.from(mergedGroup, DEFAULT_TOP_K);
+        requestPlan = requestPlan.withRetrievalPlan(retrievalPlan);
+
+        RetrievalContext ctx = retrievalEngine.retrieve(subIntents, retrievalPlan);
         if (ctx.isEmpty()) {
+            requestPlan = requestPlan.forEmptyHit();
             String emptyReply = "未检索到与问题相关的文档内容。";
             callback.onContent(emptyReply);
             callback.onComplete();
             return;
         }
 
-        // 聚合所有意图用于 prompt 规划
-        IntentGroup mergedGroup = intentResolver.mergeIntentGroup(subIntents);
-
         StreamCancellationHandle handle = streamLLMResponse(
                 rewriteResult,
                 ctx,
                 mergedGroup,
                 history,
-                thinkingEnabled,
+                requestPlan,
                 callback
         );
         taskManager.bindHandle(taskId, handle);
@@ -153,7 +161,7 @@ public class RAGChatServiceImpl implements RAGChatService {
 
     private StreamCancellationHandle streamLLMResponse(RewriteResult rewriteResult, RetrievalContext ctx,
                                                        IntentGroup intentGroup, List<ChatMessage> history,
-                                                       boolean deepThinking, StreamCallback callback) {
+                                                       RequestPlan requestPlan, StreamCallback callback) {
         PromptContext promptContext = PromptContext.builder()
                 .question(rewriteResult.rewrittenQuestion())
                 .mcpContext(ctx.getMcpContext())
@@ -171,7 +179,7 @@ public class RAGChatServiceImpl implements RAGChatService {
         );
         ChatRequest chatRequest = ChatRequest.builder()
                 .messages(messages)
-                .thinking(deepThinking)
+                .thinking(requestPlan.deepThinkingEnabled())
                 .temperature(ctx.hasMcp() ? 0.3D : 0D)  // MCP 场景稍微放宽温度
                 .topP(ctx.hasMcp() ? 0.8D : 1D)
                 .build();

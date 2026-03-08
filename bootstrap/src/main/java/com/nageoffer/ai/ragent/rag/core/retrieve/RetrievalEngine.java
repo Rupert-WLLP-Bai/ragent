@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.rag.core.retrieve;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan;
 import com.nageoffer.ai.ragent.rag.dto.KbResult;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
@@ -80,7 +81,12 @@ public class RetrievalEngine {
      */
     @RagTraceNode(name = "retrieval-engine", type = "RETRIEVE")
     public RetrievalContext retrieve(List<SubQuestionIntent> subIntents, int topK) {
-        if (CollUtil.isEmpty(subIntents)) {
+        return retrieve(subIntents, new RetrievalPlan(RetrievalPlan.RetrievalMode.MIXED, topK));
+    }
+
+    @RagTraceNode(name = "retrieval-engine-by-plan", type = "RETRIEVE")
+    public RetrievalContext retrieve(List<SubQuestionIntent> subIntents, RetrievalPlan retrievalPlan) {
+        if (CollUtil.isEmpty(subIntents) || retrievalPlan == null || !retrievalPlan.requiresRetrieval()) {
             return RetrievalContext.builder()
                     .mcpContext("")
                     .kbContext("")
@@ -88,12 +94,13 @@ public class RetrievalEngine {
                     .build();
         }
 
-        int finalTopK = topK > 0 ? topK : DEFAULT_TOP_K;
+        int fallbackTopK = retrievalPlan.topK() > 0 ? retrievalPlan.topK() : DEFAULT_TOP_K;
         List<CompletableFuture<SubQuestionContext>> tasks = subIntents.stream()
                 .map(si -> CompletableFuture.supplyAsync(
                         () -> buildSubQuestionContext(
                                 si,
-                                resolveSubQuestionTopK(si, finalTopK)
+                                retrievalPlan,
+                                resolveSubQuestionTopK(si, fallbackTopK)
                         ),
                         ragContextExecutor
                 ))
@@ -105,12 +112,20 @@ public class RetrievalEngine {
         return mergeSubQuestionContexts(contexts);
     }
 
-    private SubQuestionContext buildSubQuestionContext(SubQuestionIntent intent, int topK) {
-        List<NodeScore> kbIntents = selectKbStageIntents(intent.nodeScores());
-        List<NodeScore> mcpIntents = selectMcpStageIntents(intent.nodeScores());
+    private SubQuestionContext buildSubQuestionContext(SubQuestionIntent intent, RetrievalPlan retrievalPlan, int topK) {
+        List<NodeScore> kbIntents = retrievalPlan.includesKb()
+                ? selectKbStageIntents(intent.nodeScores())
+                : List.of();
+        List<NodeScore> mcpIntents = retrievalPlan.includesMcp()
+                ? selectMcpStageIntents(intent.nodeScores())
+                : List.of();
 
-        KbResult kbResult = executeKbStage(intent, kbIntents, topK);
-        String mcpContext = executeMcpStage(intent.subQuestion(), mcpIntents);
+        KbResult kbResult = retrievalPlan.includesKb()
+                ? executeKbStage(intent, kbIntents, topK)
+                : KbResult.empty();
+        String mcpContext = retrievalPlan.includesMcp()
+                ? executeMcpStage(intent.subQuestion(), mcpIntents)
+                : "";
 
         return new SubQuestionContext(intent.subQuestion(), kbResult.groupedContext(), mcpContext, kbResult.intentChunks());
     }

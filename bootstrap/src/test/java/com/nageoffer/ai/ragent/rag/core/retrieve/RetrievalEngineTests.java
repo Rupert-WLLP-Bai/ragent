@@ -21,10 +21,16 @@ import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.mcp.MCPParameterExtractor;
+import com.nageoffer.ai.ragent.rag.core.mcp.MCPRequest;
+import com.nageoffer.ai.ragent.rag.core.mcp.MCPResponse;
+import com.nageoffer.ai.ragent.rag.core.mcp.MCPTool;
+import com.nageoffer.ai.ragent.rag.core.mcp.MCPToolExecutor;
 import com.nageoffer.ai.ragent.rag.core.mcp.MCPToolRegistry;
+import com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan;
 import com.nageoffer.ai.ragent.rag.core.prompt.ContextFormatter;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
+import com.nageoffer.ai.ragent.rag.enums.IntentKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -32,14 +38,19 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -173,11 +184,75 @@ class RetrievalEngineTests {
         assertEquals("subq-2", merged.getProvenance().get("origin-2"));
     }
 
+    @Test
+    void shouldSkipKbStageWhenRetrievalPlanIsMcpOnly() {
+        Executor directExecutor = Runnable::run;
+        RetrievalEngine engine = new RetrievalEngine(
+                contextFormatter,
+                mcpParameterExtractor,
+                mcpToolRegistry,
+                multiChannelRetrievalEngine,
+                directExecutor,
+                directExecutor
+        );
+        NodeScore mcpIntent = mcpIntent("tool-weather");
+        SubQuestionIntent subQuestionIntent = new SubQuestionIntent("今天天气怎么样", List.of(mcpIntent));
+        MCPToolExecutor toolExecutor = new StubMcpToolExecutor();
+        when(mcpToolRegistry.getExecutor("tool-weather")).thenReturn(Optional.of(toolExecutor));
+        when(mcpParameterExtractor.extractParameters(anyString(), any(MCPTool.class), nullable(String.class))).thenReturn(Map.of());
+        when(contextFormatter.formatMcpContext(anyList(), anyList())).thenReturn("formatted-mcp");
+
+        RetrievalContext result = engine.retrieve(
+                List.of(subQuestionIntent),
+                new RetrievalPlan(RetrievalPlan.RetrievalMode.MCP_ONLY, 4)
+        );
+
+        verify(multiChannelRetrievalEngine, never()).retrieveKnowledgeChannels(anyList(), anyInt());
+        verify(contextFormatter).formatMcpContext(anyList(), anyList());
+        assertEquals("---\n**子问题**：今天天气怎么样\n\n**相关文档**：\nformatted-mcp", result.getMcpContext());
+        assertTrue(result.getKbContext().isBlank());
+    }
+
+    @Test
+    void shouldReturnEmptyContextWhenRetrievalPlanIsNone() {
+        Executor directExecutor = Runnable::run;
+        RetrievalEngine engine = new RetrievalEngine(
+                contextFormatter,
+                mcpParameterExtractor,
+                mcpToolRegistry,
+                multiChannelRetrievalEngine,
+                directExecutor,
+                directExecutor
+        );
+
+        RetrievalContext result = engine.retrieve(
+                List.of(new SubQuestionIntent("任意问题", List.of())),
+                RetrievalPlan.none()
+        );
+
+        verify(multiChannelRetrievalEngine, never()).retrieveKnowledgeChannels(anyList(), anyInt());
+        verify(contextFormatter, never()).formatKbContext(anyList(), anyMap(), anyInt());
+        verify(contextFormatter, never()).formatMcpContext(anyList(), anyList());
+        assertTrue(result.isEmpty());
+    }
+
     private static NodeScore kbIntent(String id, String collectionName) {
         return NodeScore.builder()
                 .node(IntentNode.builder()
                         .id(id)
+                        .kind(IntentKind.KB)
                         .collectionName(collectionName)
+                        .build())
+                .score(0.95D)
+                .build();
+    }
+
+    private static NodeScore mcpIntent(String toolId) {
+        return NodeScore.builder()
+                .node(IntentNode.builder()
+                        .id(toolId)
+                        .kind(IntentKind.MCP)
+                        .mcpToolId(toolId)
                         .build())
                 .score(0.95D)
                 .build();
@@ -194,5 +269,21 @@ class RetrievalEngineTests {
                 .score(0.8f)
                 .provenance(provenance)
                 .build();
+    }
+
+    private static final class StubMcpToolExecutor implements MCPToolExecutor {
+        @Override
+        public MCPTool getToolDefinition() {
+            return MCPTool.builder()
+                    .toolId("tool-weather")
+                    .description("weather tool")
+                    .parameters(Map.of())
+                    .build();
+        }
+
+        @Override
+        public MCPResponse execute(MCPRequest request) {
+            return MCPResponse.success(request.getToolId(), "sunny", Map.of("answer", "sunny"));
+        }
     }
 }
