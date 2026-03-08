@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.rag.core.retrieve;
 
 import com.nageoffer.ai.ragent.framework.convention.RetrievedChunk;
 import com.nageoffer.ai.ragent.infra.embedding.EmbeddingService;
+import com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentNode;
 import com.nageoffer.ai.ragent.rag.core.intent.NodeScore;
 import com.nageoffer.ai.ragent.rag.core.retrieve.channel.SearchChannel;
@@ -39,6 +40,7 @@ import java.util.concurrent.Executor;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -77,6 +79,8 @@ class MultiChannelRetrievalEngineTests {
         float[] expectedVector = new float[]{0.6f, 0.8f};
         assertArrayEquals(expectedVector, ((CapturingSearchChannel) firstChannel).capturedVector, 0.0001f);
         assertArrayEquals(expectedVector, ((CapturingSearchChannel) secondChannel).capturedVector, 0.0001f);
+        assertEquals(RetrievalPlan.RetrievalMode.KB_ONLY, ((CapturingSearchChannel) firstChannel).capturedRetrievalPlan.retrievalMode());
+        assertSame(((CapturingSearchChannel) firstChannel).capturedRetrievalPlan, ((CapturingSearchChannel) secondChannel).capturedRetrievalPlan);
     }
 
     @Test
@@ -110,6 +114,7 @@ class MultiChannelRetrievalEngineTests {
     private static final class CapturingSearchChannel implements SearchChannel {
         private final String name;
         private float[] capturedVector;
+        private RetrievalPlan capturedRetrievalPlan;
 
         private CapturingSearchChannel(String name) {
             this.name = name;
@@ -133,6 +138,7 @@ class MultiChannelRetrievalEngineTests {
         @Override
         public SearchChannelResult search(SearchContext context) {
             capturedVector = context.getQueryVector();
+            capturedRetrievalPlan = context.getRetrievalPlan();
             return SearchChannelResult.builder()
                     .channelType(SearchChannelType.INTENT_DIRECTED)
                     .channelName(name)

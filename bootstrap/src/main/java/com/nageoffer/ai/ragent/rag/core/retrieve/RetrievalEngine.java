@@ -282,7 +282,10 @@ public class RetrievalEngine {
     }
 
     private List<RetrievedChunk> executeKnowledgeRetrieval(SubQuestionIntent intent, int topK) {
-        return multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(intent), topK);
+        return multiChannelRetrievalEngine.retrieveKnowledgeChannels(
+                List.of(intent),
+                new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, topK)
+        );
     }
 
     private Map<String, List<RetrievedChunk>> groupChunksByIntent(List<NodeScore> kbIntents, List<RetrievedChunk> chunks) {

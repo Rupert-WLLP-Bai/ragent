@@ -85,7 +85,7 @@ class RetrievalEngineTests {
         RetrievedChunk employeeChunk = chunk("c1", "员工手册片段", "employee_manual");
         RetrievedChunk policyChunk = chunk("c2", "制度手册片段", "policy_handbook");
         SubQuestionIntent subQuestionIntent = new SubQuestionIntent("请介绍请假制度", List.of(employeeIntent, policyIntent));
-        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(subQuestionIntent), 5))
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(subQuestionIntent), new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, 5)))
                 .thenReturn(List.of(employeeChunk, policyChunk));
         when(contextFormatter.formatKbContext(anyList(), anyMap(), anyInt())).thenReturn("formatted-kb");
 
@@ -111,7 +111,7 @@ class RetrievalEngineTests {
         NodeScore employeeIntent = kbIntent("intent-employee", "employee_manual");
         RetrievedChunk unrelatedChunk = chunk("c1", "别的手册片段", "policy_handbook");
         SubQuestionIntent subQuestionIntent = new SubQuestionIntent("请介绍请假制度", List.of(employeeIntent));
-        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(subQuestionIntent), 5))
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(subQuestionIntent), new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, 5)))
                 .thenReturn(List.of(unrelatedChunk));
         when(contextFormatter.formatKbContext(anyList(), anyMap(), anyInt())).thenReturn("formatted-kb");
 
@@ -136,9 +136,9 @@ class RetrievalEngineTests {
         SubQuestionIntent second = new SubQuestionIntent("子问题二", List.of(employeeIntent));
         RetrievedChunk firstChunk = chunk("c1", "片段一", "employee_manual");
         RetrievedChunk secondChunk = chunk("c2", "片段二", "employee_manual");
-        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(first), 5))
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(first), new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, 5)))
                 .thenReturn(List.of(firstChunk));
-        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(second), 5))
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(second), new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, 5)))
                 .thenReturn(List.of(secondChunk));
         when(contextFormatter.formatKbContext(anyList(), anyMap(), anyInt()))
                 .thenReturn("formatted-kb-1", "formatted-kb-2");
@@ -168,9 +168,9 @@ class RetrievalEngineTests {
         SubQuestionIntent second = new SubQuestionIntent("子问题二", List.of(employeeIntent));
         RetrievedChunk firstChunk = chunk("shared", "片段一", Map.of("collection", "employee_manual", "origin-1", "subq-1"));
         RetrievedChunk secondChunk = chunk("shared", "片段一", Map.of("collection", "employee_manual", "origin-2", "subq-2"));
-        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(first), 5))
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(first), new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, 5)))
                 .thenReturn(List.of(firstChunk));
-        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(second), 5))
+        when(multiChannelRetrievalEngine.retrieveKnowledgeChannels(List.of(second), new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, 5)))
                 .thenReturn(List.of(secondChunk));
         when(contextFormatter.formatKbContext(anyList(), anyMap(), anyInt()))
                 .thenReturn("formatted-kb-1", "formatted-kb-2");
@@ -207,7 +207,7 @@ class RetrievalEngineTests {
                 new RetrievalPlan(RetrievalPlan.RetrievalMode.MCP_ONLY, 4)
         );
 
-        verify(multiChannelRetrievalEngine, never()).retrieveKnowledgeChannels(anyList(), anyInt());
+        verify(multiChannelRetrievalEngine, never()).retrieveKnowledgeChannels(anyList(), any(RetrievalPlan.class));
         verify(contextFormatter).formatMcpContext(anyList(), anyList());
         assertEquals("---\n**子问题**：今天天气怎么样\n\n**相关文档**：\nformatted-mcp", result.getMcpContext());
         assertTrue(result.getKbContext().isBlank());
@@ -230,7 +230,7 @@ class RetrievalEngineTests {
                 RetrievalPlan.none()
         );
 
-        verify(multiChannelRetrievalEngine, never()).retrieveKnowledgeChannels(anyList(), anyInt());
+        verify(multiChannelRetrievalEngine, never()).retrieveKnowledgeChannels(anyList(), any(RetrievalPlan.class));
         verify(contextFormatter, never()).formatKbContext(anyList(), anyMap(), anyInt());
         verify(contextFormatter, never()).formatMcpContext(anyList(), anyList());
         assertTrue(result.isEmpty());

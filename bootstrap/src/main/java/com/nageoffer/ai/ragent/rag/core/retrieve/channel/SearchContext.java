@@ -17,6 +17,7 @@
 
 package com.nageoffer.ai.ragent.rag.core.retrieve.channel;
 
+import com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
 import lombok.Builder;
 import lombok.Data;
@@ -58,6 +59,11 @@ public class SearchContext {
      * 期望返回的结果数量
      */
     private int topK;
+
+    /**
+     * 当前请求的检索阶段决策
+     */
+    private RetrievalPlan retrievalPlan;
 
     /**
      * 当前请求复用的查询向量
