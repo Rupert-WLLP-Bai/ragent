@@ -28,6 +28,12 @@
 ## 目录
 
 - [项目说明](#项目说明)
+- [本地快速启动（已验证）](#本地快速启动已验证)
+    - [1. 启动前依赖](#1-启动前依赖)
+    - [2. 启动顺序](#2-启动顺序)
+    - [3. 后端启动命令](#3-后端启动命令)
+    - [4. 启动后检查](#4-启动后检查)
+    - [5. 这次本地启动踩过的坑](#5-这次本地启动踩过的坑)
 - [为什么学习 AI 项目](#为什么学习-ai-项目)
     - [1. 校招现状](#1-校招现状)
     - [2. 社招现状](#2-社招现状)
@@ -59,6 +65,166 @@
     - [1. 能够学到什么？](#1-能够学到什么)
     - [2. 适合人群](#2-适合人群)
 - [项目开源地址](#项目开源地址)
+
+## 本地快速启动（已验证）
+
+下面这套流程已经在当前仓库的本地环境里实际跑通过，目标是一次性把前端、后端、MCP 以及后端 readiness 都拉起来，避免每次启动重复踩坑。
+
+### 1. 启动前依赖
+
+至少需要这些本地依赖：
+
+- Java 17
+- Maven
+- Node.js / npm
+- Docker
+
+本地服务端口约定：
+
+- MySQL: `3306`
+- Redis: `6379`
+- Milvus: `19530`
+- RustFS: `9000`
+- 后端: `9090`
+- MCP: `9099`
+- 前端: `5173`
+
+如果使用当前仓库配套的本地 Docker 依赖，这次在我当前环境里实测到的可用凭证是：
+
+- MySQL
+  - 用户名：`root`
+  - 密码：`root`
+- Redis
+  - 密码：`123456`
+- RustFS
+  - `RUSTFS_ACCESS_KEY_ID=rustfsadmin`
+  - `RUSTFS_SECRET_ACCESS_KEY=rustfsadmin`
+
+> 如果你本地容器不是按这套参数起的，请把下面命令中的环境变量替换成你自己的值。
+
+### 2. 启动顺序
+
+建议严格按下面顺序启动：
+
+1. 先启动 MySQL / Redis / Milvus / RustFS
+2. 再启动 MCP Server
+3. 最后启动后端 bootstrap
+4. 最后启动前端 Vite
+
+原因：后端启动时会初始化 Redis、MySQL、Milvus、RustFS 和 MCP 客户端。只要其中一个依赖没起来，或者凭证不匹配，就可能直接启动失败或者 readiness 变红。
+
+### 3. 后端启动命令
+
+#### 3.1 启动 MCP Server
+
+```bash
+mvn -f /path/to/ragent/pom.xml -pl mcp-server spring-boot:run
+```
+
+默认监听：`http://127.0.0.1:9099`
+
+#### 3.2 首次准备 Milvus / RustFS 健康资源
+
+后端 readiness 默认会检查：
+
+- Milvus 默认 collection：`rag_default_store`
+- RustFS 健康 bucket：`rag-health`
+
+如果你是第一次启动本地环境，先创建 RustFS bucket：
+
+```bash
+AWS_ACCESS_KEY_ID=rustfsadmin \
+AWS_SECRET_ACCESS_KEY=rustfsadmin \
+aws --endpoint-url http://127.0.0.1:9000 s3api create-bucket --bucket rag-health
+```
+
+如果 bucket 已存在，可以直接忽略报错。
+
+Milvus 也需要存在默认 collection `rag_default_store`。如果你本地是全新 Milvus，可以通过项目实际使用的 schema 创建它；否则后端虽然能启动，但 `/actuator/health/readiness` 会显示 `milvus: OUT_OF_SERVICE`。
+
+#### 3.3 启动后端
+
+```bash
+DB_USERNAME=root \
+DB_PASSWORD=root \
+REDIS_PASSWORD=123456 \
+RUSTFS_ACCESS_KEY_ID=rustfsadmin \
+RUSTFS_SECRET_ACCESS_KEY=rustfsadmin \
+RUSTFS_HEALTH_BUCKET=rag-health \
+SERVER_PORT=9090 \
+mvn -f /path/to/ragent/pom.xml \
+  -pl bootstrap spring-boot:run \
+  -Dspring-boot.run.main-class=com.nageoffer.ai.ragent.RagentApplication
+```
+
+默认地址：`http://127.0.0.1:9090/api/ragent`
+
+#### 3.4 启动前端
+
+```bash
+npm --prefix /path/to/ragent/frontend run dev -- --host 0.0.0.0
+```
+
+默认地址：`http://127.0.0.1:5173`
+
+前端开发代理已经配置到后端：
+
+- `/api` -> `http://localhost:9090`
+
+所以本地联调时，前端会直接把 `/api/ragent/**` 请求转发到后端。
+
+### 4. 启动后检查
+
+建议至少检查下面几个地址：
+
+#### 4.1 前端
+
+```bash
+curl http://127.0.0.1:5173
+```
+
+#### 4.2 MCP
+
+```bash
+curl -X POST http://127.0.0.1:9099/mcp \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+```
+
+如果启动正常，应该能看到工具列表，例如 `sales_query`。
+
+#### 4.3 后端健康检查
+
+```bash
+curl http://127.0.0.1:9090/api/ragent/actuator/health
+curl http://127.0.0.1:9090/api/ragent/actuator/health/readiness
+```
+
+全部正常时，`health` 和 `readiness` 都应该返回 `"status":"UP"`。
+
+### 5. 这次本地启动踩过的坑
+
+这几个问题是这次本地实测里真正遇到过的，后面再碰到可以直接对照排查：
+
+1. **Redis 密码不对会导致 Spring 直接启动失败**
+   - 表现：`RedisWrongPasswordException` / `Unable to connect to Redis server`
+   - 处理：确认本地 Redis 是否开启认证，并传入正确的 `REDIS_PASSWORD`
+
+2. **MySQL 用户名或密码不对会导致意图树初始化失败**
+   - 表现：`Access denied for user ... (using password: NO/YES)`
+   - 处理：确认 `DB_USERNAME` / `DB_PASSWORD`
+
+3. **RustFS 凭证不对时，服务能起来，但 readiness 会是 DOWN**
+   - 表现：`rustfs: DOWN`，`401 Unauthorized`
+   - 处理：传入正确的 `RUSTFS_ACCESS_KEY_ID` / `RUSTFS_SECRET_ACCESS_KEY`
+
+4. **Milvus 默认 collection 不存在时，服务能起来，但 readiness 会是 DOWN**
+   - 表现：`milvus: OUT_OF_SERVICE`，`collectionExists=false`
+   - 处理：预先创建 `rag_default_store`
+
+5. **后端在 MCP 启动前启动时，不会自动补注册 MCP 工具**
+   - 表现：后端日志里看不到远程工具注册
+   - 处理：先起 MCP，再起后端；如果顺序反了，重启一次后端
 
 ## 为什么学习 AI 项目
 
