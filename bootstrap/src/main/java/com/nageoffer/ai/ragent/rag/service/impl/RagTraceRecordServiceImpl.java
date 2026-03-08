@@ -17,6 +17,8 @@
 
 package com.nageoffer.ai.ragent.rag.service.impl;
 
+import cn.hutool.core.util.IdUtil;
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.nageoffer.ai.ragent.rag.dao.entity.RagTraceNodeDO;
 import com.nageoffer.ai.ragent.rag.dao.entity.RagTraceRunDO;
@@ -71,5 +73,53 @@ public class RagTraceRecordServiceImpl implements RagTraceRecordService {
         nodeMapper.update(update, Wrappers.lambdaUpdate(RagTraceNodeDO.class)
                 .eq(RagTraceNodeDO::getTraceId, traceId)
                 .eq(RagTraceNodeDO::getNodeId, nodeId));
+    }
+
+    @Override
+    public void appendRunExtraData(String traceId, String extraData) {
+        if (StrUtil.isBlank(traceId) || StrUtil.isBlank(extraData)) {
+            return;
+        }
+        RagTraceRunDO update = RagTraceRunDO.builder()
+                .extraData(extraData)
+                .build();
+        runMapper.update(update, Wrappers.lambdaUpdate(RagTraceRunDO.class)
+                .eq(RagTraceRunDO::getTraceId, traceId));
+    }
+
+    @Override
+    public void upsertDecisionNode(String traceId, String taskId, String extraData) {
+        if (StrUtil.isBlank(traceId) || StrUtil.isBlank(extraData)) {
+            return;
+        }
+        RagTraceNodeDO existing = nodeMapper.selectOne(Wrappers.lambdaQuery(RagTraceNodeDO.class)
+                .eq(RagTraceNodeDO::getTraceId, traceId)
+                .eq(RagTraceNodeDO::getNodeType, "DECISION")
+                .last("limit 1"));
+        if (existing != null) {
+            RagTraceNodeDO update = RagTraceNodeDO.builder()
+                    .extraData(extraData)
+                    .status("SUCCESS")
+                    .build();
+            nodeMapper.update(update, Wrappers.lambdaUpdate(RagTraceNodeDO.class)
+                    .eq(RagTraceNodeDO::getTraceId, traceId)
+                    .eq(RagTraceNodeDO::getNodeId, existing.getNodeId()));
+            return;
+        }
+        nodeMapper.insert(RagTraceNodeDO.builder()
+                .traceId(traceId)
+                .nodeId(IdUtil.getSnowflakeNextIdStr())
+                .parentNodeId(null)
+                .depth(0)
+                .nodeType("DECISION")
+                .nodeName("request-decision")
+                .className(RagTraceRecordServiceImpl.class.getName())
+                .methodName("upsertDecisionNode")
+                .status("SUCCESS")
+                .startTime(new Date())
+                .endTime(new Date())
+                .durationMs(0L)
+                .extraData(extraData)
+                .build());
     }
 }

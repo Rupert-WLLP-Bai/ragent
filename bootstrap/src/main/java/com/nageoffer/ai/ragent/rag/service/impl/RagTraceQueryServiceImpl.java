@@ -113,6 +113,7 @@ public class RagTraceQueryServiceImpl implements RagTraceQueryService {
                 .status(run.getStatus())
                 .errorMessage(run.getErrorMessage())
                 .durationMs(run.getDurationMs())
+                .extraData(run.getExtraData())
                 .startTime(run.getStartTime())
                 .endTime(run.getEndTime())
                 .build();
@@ -177,6 +178,7 @@ public class RagTraceQueryServiceImpl implements RagTraceQueryService {
                 .status(node.getStatus())
                 .errorMessage(node.getErrorMessage())
                 .durationMs(node.getDurationMs())
+                .extraData(node.getExtraData())
                 .startTime(node.getStartTime())
                 .endTime(node.getEndTime())
                 .build();

@@ -27,44 +27,58 @@ class RequestPlanTests {
 
     @Test
     void shouldStartWithConservativeDefaults() {
-        RequestPlan plan = RequestPlan.start(false);
+        RequestPlan plan = RequestPlan.initial(
+                RequestPlan.RewriteMode.NORMALIZE_ONLY,
+                RequestPlan.ThinkingMode.STANDARD,
+                RequestPlan.ModelTier.LOW_COST,
+                java.util.List.of("default low-cost path")
+        );
 
         assertEquals(RequestPlan.QueryType.STANDARD, plan.queryType());
-        assertEquals(RequestPlan.RewriteMode.REWRITE_WITH_SPLIT, plan.rewriteMode());
+        assertEquals(RequestPlan.RewriteMode.NORMALIZE_ONLY, plan.rewriteMode());
         assertEquals(RequestPlan.ResponseMode.RAG, plan.responseMode());
         assertEquals(RequestPlan.ThinkingMode.STANDARD, plan.thinkingMode());
+        assertEquals(RequestPlan.ModelTier.LOW_COST, plan.modelTier());
         assertEquals(RetrievalPlan.RetrievalMode.NONE, plan.retrievalPlan().retrievalMode());
         assertFalse(plan.deepThinkingEnabled());
     }
 
     @Test
     void shouldSwitchToDeepThinkingModeWhenRequested() {
-        RequestPlan plan = RequestPlan.start(true);
+        RequestPlan plan = RequestPlan.initial(
+                RequestPlan.RewriteMode.REWRITE_WITH_SPLIT,
+                RequestPlan.ThinkingMode.DEEP,
+                RequestPlan.ModelTier.DEEP_THINKING,
+                java.util.List.of("user requested deep thinking")
+        );
 
         assertEquals(RequestPlan.ThinkingMode.DEEP, plan.thinkingMode());
+        assertEquals(RequestPlan.ModelTier.DEEP_THINKING, plan.modelTier());
         assertTrue(plan.deepThinkingEnabled());
     }
 
     @Test
-    void shouldUseConservativeResponseTransitions() {
-        RequestPlan base = RequestPlan.start(true)
-                .withRetrievalPlan(new RetrievalPlan(RetrievalPlan.RetrievalMode.MIXED, 5));
+    void shouldExposeStructuredTracePayload() {
+        RequestPlan plan = RequestPlan.initial(
+                        RequestPlan.RewriteMode.NORMALIZE_ONLY,
+                        RequestPlan.ThinkingMode.STANDARD,
+                        RequestPlan.ModelTier.LOW_COST,
+                        java.util.List.of("simple request")
+                )
+                .withDecision(
+                        RequestPlan.QueryType.SIMPLE_KB,
+                        new RetrievalPlan(RetrievalPlan.RetrievalMode.KB_ONLY, 5),
+                        RequestPlan.ResponseMode.RAG,
+                        RequestPlan.ThinkingMode.STANDARD,
+                        RequestPlan.ModelTier.LOW_COST,
+                        java.util.List.of("simple kb route")
+                );
 
-        RequestPlan guidance = base.forGuidancePrompt();
-        RequestPlan systemOnly = base.forSystemOnly();
-        RequestPlan emptyHit = base.forEmptyHit();
-
-        assertEquals(RequestPlan.ResponseMode.GUIDANCE_PROMPT, guidance.responseMode());
-        assertEquals(RetrievalPlan.RetrievalMode.NONE, guidance.retrievalPlan().retrievalMode());
-        assertEquals(RequestPlan.ThinkingMode.STANDARD, guidance.thinkingMode());
-
-        assertEquals(RequestPlan.QueryType.SYSTEM_ONLY, systemOnly.queryType());
-        assertEquals(RequestPlan.ResponseMode.DIRECT_LLM, systemOnly.responseMode());
-        assertEquals(RetrievalPlan.RetrievalMode.NONE, systemOnly.retrievalPlan().retrievalMode());
-        assertEquals(RequestPlan.ThinkingMode.STANDARD, systemOnly.thinkingMode());
-
-        assertEquals(RequestPlan.ResponseMode.EMPTY_HIT, emptyHit.responseMode());
-        assertEquals(RetrievalPlan.RetrievalMode.MIXED, emptyHit.retrievalPlan().retrievalMode());
-        assertEquals(RequestPlan.ThinkingMode.DEEP, emptyHit.thinkingMode());
+        assertEquals("SIMPLE_KB", plan.toTracePayload().get("queryType"));
+        assertEquals("NORMALIZE_ONLY", plan.toTracePayload().get("rewriteMode"));
+        assertEquals("KB_ONLY", plan.toTracePayload().get("retrievalMode"));
+        assertEquals("RAG", plan.toTracePayload().get("responseMode"));
+        assertEquals("STANDARD", plan.toTracePayload().get("thinkingMode"));
+        assertEquals("LOW_COST", plan.toTracePayload().get("selectedModelTier"));
     }
 }

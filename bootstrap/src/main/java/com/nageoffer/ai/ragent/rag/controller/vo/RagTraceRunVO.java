@@ -49,6 +49,8 @@ public class RagTraceRunVO {
 
     private Long durationMs;
 
+    private String extraData;
+
     private Date startTime;
 
     private Date endTime;

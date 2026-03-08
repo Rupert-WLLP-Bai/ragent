@@ -19,6 +19,7 @@ package com.nageoffer.ai.ragent.rag.service;
 
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
+import com.nageoffer.ai.ragent.framework.trace.RagTraceContext;
 import com.nageoffer.ai.ragent.infra.chat.LLMService;
 import com.nageoffer.ai.ragent.infra.chat.StreamCallback;
 import com.nageoffer.ai.ragent.infra.chat.StreamCancellationHandle;
@@ -26,6 +27,7 @@ import com.nageoffer.ai.ragent.rag.core.guidance.GuidanceDecision;
 import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentResolver;
 import com.nageoffer.ai.ragent.rag.core.memory.ConversationMemoryService;
+import com.nageoffer.ai.ragent.rag.core.plan.RequestPlanner;
 import com.nageoffer.ai.ragent.rag.core.prompt.RAGPromptService;
 import com.nageoffer.ai.ragent.rag.core.retrieve.RetrievalEngine;
 import com.nageoffer.ai.ragent.rag.core.rewrite.QueryRewriteService;
@@ -33,13 +35,14 @@ import com.nageoffer.ai.ragent.rag.core.rewrite.RewriteResult;
 import com.nageoffer.ai.ragent.rag.dto.IntentGroup;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
+import com.nageoffer.ai.ragent.rag.service.RagTraceRecordService;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamCallbackFactory;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamTaskManager;
 import com.nageoffer.ai.ragent.rag.service.impl.RAGChatServiceImpl;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -54,12 +57,32 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class RAGChatServiceImplTests {
+
+    @BeforeEach
+    void setUp() {
+        RagTraceContext.clear();
+        service = new RAGChatServiceImpl(
+                llmService,
+                promptBuilder,
+                promptTemplateLoader,
+                memoryService,
+                taskManager,
+                guidanceService,
+                callbackFactory,
+                queryRewriteService,
+                intentResolver,
+                retrievalEngine,
+                requestPlanner,
+                ragTraceRecordService
+        );
+    }
 
     @Mock
     private LLMService llmService;
@@ -81,8 +104,11 @@ class RAGChatServiceImplTests {
     private IntentResolver intentResolver;
     @Mock
     private RetrievalEngine retrievalEngine;
+    @Mock
+    private RagTraceRecordService ragTraceRecordService;
 
-    @InjectMocks
+    private final RequestPlanner requestPlanner = new RequestPlanner();
+
     private RAGChatServiceImpl service;
 
     @Test
@@ -94,28 +120,33 @@ class RAGChatServiceImplTests {
 
         when(callbackFactory.createChatEventHandler(any(SseEmitter.class), any(), any())).thenReturn(callback);
         when(memoryService.loadAndAppend(any(), any(), any())).thenReturn(List.of(ChatMessage.user("history")));
-        when(queryRewriteService.rewriteWithSplit("系统问题", List.of(ChatMessage.user("history")))).thenReturn(rewriteResult);
-        when(intentResolver.resolve(rewriteResult)).thenReturn(List.of(systemIntent));
+        when(intentResolver.resolve(new RewriteResult("系统问题", List.of("系统问题")))).thenReturn(List.of(systemIntent));
         when(guidanceService.detectAmbiguity("系统问题", List.of(systemIntent))).thenReturn(GuidanceDecision.none());
         when(intentResolver.isSystemOnly(systemIntent.nodeScores())).thenReturn(true);
+        when(intentResolver.mergeIntentGroup(List.of(systemIntent))).thenReturn(new IntentGroup(List.of(), List.of()));
         when(promptTemplateLoader.load(any())).thenReturn("system-prompt");
         when(llmService.streamChat(any(ChatRequest.class), any(StreamCallback.class))).thenReturn(handle);
+        RagTraceContext.setTraceId("trace-1");
+        RagTraceContext.setTaskId("task-1");
 
         service.streamChat("系统问题", "c-1", true, new SseEmitter());
 
+        verify(queryRewriteService, never()).rewriteWithSplit(any(), anyList());
         verify(retrievalEngine, never()).retrieve(anyList(), anyInt());
         verify(retrievalEngine, never()).retrieve(anyList(), any(com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan.class));
         ArgumentCaptor<ChatRequest> captor = ArgumentCaptor.forClass(ChatRequest.class);
         verify(llmService).streamChat(captor.capture(), any(StreamCallback.class));
         assertFalse(Boolean.TRUE.equals(captor.getValue().getThinking()));
         verify(taskManager).bindHandle(any(), any(StreamCancellationHandle.class));
+        verify(ragTraceRecordService).appendRunExtraData(any(), contains("SYSTEM_ONLY"));
+        verify(ragTraceRecordService).upsertDecisionNode(any(), any(), contains("SYSTEM_ONLY"));
     }
 
     @Test
     void shouldPassMixedRetrievalPlanAndDeepThinkingToRagResponse() {
         StreamCallback callback = new CapturingCallback();
         StreamCancellationHandle handle = () -> { };
-        RewriteResult rewriteResult = new RewriteResult("用户问题", List.of("子问题1", "子问题2"));
+        RewriteResult rewriteResult = new RewriteResult("帮我查一下请假制度并确认审批状态以及还剩多少年假", List.of("子问题1", "子问题2", "子问题3"));
         SubQuestionIntent first = new SubQuestionIntent("子问题1", List.of());
         SubQuestionIntent second = new SubQuestionIntent("子问题2", List.of());
         RetrievalContext retrievalContext = RetrievalContext.builder()
@@ -128,16 +159,18 @@ class RAGChatServiceImplTests {
 
         when(callbackFactory.createChatEventHandler(any(SseEmitter.class), any(), any())).thenReturn(callback);
         when(memoryService.loadAndAppend(any(), any(), any())).thenReturn(List.of(ChatMessage.user("history")));
-        when(queryRewriteService.rewriteWithSplit("用户问题", List.of(ChatMessage.user("history")))).thenReturn(rewriteResult);
+        when(queryRewriteService.rewriteWithSplit("帮我查一下请假制度并确认审批状态以及还剩多少年假", List.of(ChatMessage.user("history")))).thenReturn(rewriteResult);
         when(intentResolver.resolve(rewriteResult)).thenReturn(List.of(first, second));
-        when(guidanceService.detectAmbiguity("用户问题", List.of(first, second))).thenReturn(GuidanceDecision.none());
+        when(guidanceService.detectAmbiguity("帮我查一下请假制度并确认审批状态以及还剩多少年假", List.of(first, second))).thenReturn(GuidanceDecision.none());
         when(intentResolver.isSystemOnly(anyList())).thenReturn(false);
         when(intentResolver.mergeIntentGroup(List.of(first, second))).thenReturn(intentGroup);
         when(retrievalEngine.retrieve(anyList(), any(com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan.class))).thenReturn(retrievalContext);
         when(promptBuilder.buildStructuredMessages(any(), anyList(), any(), anyList())).thenReturn(builtMessages);
         when(llmService.streamChat(any(ChatRequest.class), any(StreamCallback.class))).thenReturn(handle);
+        RagTraceContext.setTraceId("trace-1");
+        RagTraceContext.setTaskId("task-1");
 
-        service.streamChat("用户问题", "c-1", true, new SseEmitter());
+        service.streamChat("帮我查一下请假制度并确认审批状态以及还剩多少年假", "c-1", false, new SseEmitter());
 
         ArgumentCaptor<com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan> planCaptor = ArgumentCaptor.forClass(com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan.class);
         verify(retrievalEngine).retrieve(anyList(), planCaptor.capture());
@@ -149,6 +182,8 @@ class RAGChatServiceImplTests {
         assertTrue(Boolean.TRUE.equals(requestCaptor.getValue().getThinking()));
         assertEquals(0.3D, requestCaptor.getValue().getTemperature());
         assertEquals(0.8D, requestCaptor.getValue().getTopP());
+        verify(ragTraceRecordService).appendRunExtraData(any(), contains("MIXED"));
+        verify(ragTraceRecordService).upsertDecisionNode(any(), any(), contains("selectedModelTier"));
     }
 
     private static com.nageoffer.ai.ragent.rag.core.intent.NodeScore mockNodeScore() {

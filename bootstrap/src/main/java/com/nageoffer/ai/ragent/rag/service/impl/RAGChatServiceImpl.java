@@ -20,6 +20,7 @@ package com.nageoffer.ai.ragent.rag.service.impl;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.core.util.StrUtil;
 import com.nageoffer.ai.ragent.framework.context.UserContext;
+import cn.hutool.json.JSONUtil;
 import com.nageoffer.ai.ragent.framework.convention.ChatMessage;
 import com.nageoffer.ai.ragent.framework.convention.ChatRequest;
 import com.nageoffer.ai.ragent.framework.trace.RagTraceContext;
@@ -32,6 +33,7 @@ import com.nageoffer.ai.ragent.rag.core.guidance.IntentGuidanceService;
 import com.nageoffer.ai.ragent.rag.core.intent.IntentResolver;
 import com.nageoffer.ai.ragent.rag.core.memory.ConversationMemoryService;
 import com.nageoffer.ai.ragent.rag.core.plan.RequestPlan;
+import com.nageoffer.ai.ragent.rag.core.plan.RequestPlanner;
 import com.nageoffer.ai.ragent.rag.core.plan.RetrievalPlan;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptContext;
 import com.nageoffer.ai.ragent.rag.core.prompt.PromptTemplateLoader;
@@ -43,6 +45,7 @@ import com.nageoffer.ai.ragent.rag.dto.IntentGroup;
 import com.nageoffer.ai.ragent.rag.dto.RetrievalContext;
 import com.nageoffer.ai.ragent.rag.dto.SubQuestionIntent;
 import com.nageoffer.ai.ragent.rag.service.RAGChatService;
+import com.nageoffer.ai.ragent.rag.service.RagTraceRecordService;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamCallbackFactory;
 import com.nageoffer.ai.ragent.rag.service.handler.StreamTaskManager;
 import lombok.RequiredArgsConstructor;
@@ -76,6 +79,8 @@ public class RAGChatServiceImpl implements RAGChatService {
     private final QueryRewriteService queryRewriteService;
     private final IntentResolver intentResolver;
     private final RetrievalEngine retrievalEngine;
+    private final RequestPlanner requestPlanner;
+    private final RagTraceRecordService ragTraceRecordService;
 
     @Override
     @ChatRateLimit
@@ -92,35 +97,54 @@ public class RAGChatServiceImpl implements RAGChatService {
         String userId = UserContext.getUserId();
         List<ChatMessage> history = memoryService.loadAndAppend(actualConversationId, userId, ChatMessage.user(question));
 
-        RewriteResult rewriteResult = queryRewriteService.rewriteWithSplit(question, history);
+        RequestPlan initialPlan = requestPlanner.createInitialPlan(question, thinkingEnabled);
+        RewriteResult rewriteResult = rewriteQuestion(question, history, initialPlan);
         List<SubQuestionIntent> subIntents = intentResolver.resolve(rewriteResult);
-        RequestPlan requestPlan = RequestPlan.start(thinkingEnabled);
 
         GuidanceDecision guidanceDecision = guidanceService.detectAmbiguity(rewriteResult.rewrittenQuestion(), subIntents);
-        if (guidanceDecision.isPrompt()) {
-            requestPlan = requestPlan.forGuidancePrompt();
+        boolean allSystemOnly = subIntents.stream()
+                .allMatch(si -> intentResolver.isSystemOnly(si.nodeScores()));
+        IntentGroup mergedGroup = intentResolver.mergeIntentGroup(subIntents);
+
+        RequestPlan requestPlan = requestPlanner.finalizePlan(
+                initialPlan,
+                question,
+                rewriteResult.subQuestions(),
+                subIntents,
+                guidanceDecision,
+                mergedGroup,
+                allSystemOnly,
+                false,
+                thinkingEnabled
+        );
+        recordDecisionTrace(taskId, requestPlan);
+
+        if (requestPlan.responseMode() == RequestPlan.ResponseMode.GUIDANCE_PROMPT) {
             callback.onContent(guidanceDecision.getPrompt());
             callback.onComplete();
             return;
         }
 
-        boolean allSystemOnly = subIntents.stream()
-                .allMatch(si -> intentResolver.isSystemOnly(si.nodeScores()));
-        if (allSystemOnly) {
-            requestPlan = requestPlan.forSystemOnly();
+        if (requestPlan.responseMode() == RequestPlan.ResponseMode.DIRECT_LLM) {
             StreamCancellationHandle handle = streamSystemResponse(rewriteResult.rewrittenQuestion(), callback);
             taskManager.bindHandle(taskId, handle);
             return;
         }
 
-        // 聚合所有意图用于请求级决策与 prompt 规划
-        IntentGroup mergedGroup = intentResolver.mergeIntentGroup(subIntents);
-        RetrievalPlan retrievalPlan = RetrievalPlan.from(mergedGroup, DEFAULT_TOP_K);
-        requestPlan = requestPlan.withRetrievalPlan(retrievalPlan);
-
-        RetrievalContext ctx = retrievalEngine.retrieve(subIntents, retrievalPlan);
+        RetrievalContext ctx = retrievalEngine.retrieve(subIntents, requestPlan.retrievalPlan());
         if (ctx.isEmpty()) {
-            requestPlan = requestPlan.forEmptyHit();
+            RequestPlan emptyHitPlan = requestPlanner.finalizePlan(
+                    initialPlan,
+                    question,
+                    rewriteResult.subQuestions(),
+                    subIntents,
+                    guidanceDecision,
+                    mergedGroup,
+                    allSystemOnly,
+                    true,
+                    thinkingEnabled
+            );
+            recordDecisionTrace(taskId, emptyHitPlan);
             String emptyReply = "未检索到与问题相关的文档内容。";
             callback.onContent(emptyReply);
             callback.onComplete();
@@ -141,6 +165,22 @@ public class RAGChatServiceImpl implements RAGChatService {
     @Override
     public void stopTask(String taskId) {
         taskManager.cancel(taskId);
+    }
+
+    private RewriteResult rewriteQuestion(String question, List<ChatMessage> history, RequestPlan requestPlan) {
+        if (requestPlan.rewriteMode() == RequestPlan.RewriteMode.NORMALIZE_ONLY) {
+            return new RewriteResult(question, List.of(question));
+        }
+        return queryRewriteService.rewriteWithSplit(question, history);
+    }
+
+    private void recordDecisionTrace(String taskId, RequestPlan requestPlan) {
+        String traceId = RagTraceContext.getTraceId();
+        if (StrUtil.isBlank(traceId) || requestPlan == null) {
+            return;
+        }
+        ragTraceRecordService.appendRunExtraData(traceId, JSONUtil.toJsonStr(requestPlan.toTracePayload()));
+        ragTraceRecordService.upsertDecisionNode(traceId, taskId, JSONUtil.toJsonStr(requestPlan.toTracePayload()));
     }
 
     // ==================== LLM 响应 ====================
