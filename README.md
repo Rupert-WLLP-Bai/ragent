@@ -25,6 +25,23 @@
 
 **欢迎顺手点个 Star 支持一下呀 ⭐** 你的每一个 Star，都是我持续打磨这个项目的动力 💪
 
+## 本地构建 / 启动补充说明
+
+- JDK 23 及以上版本下，Maven 默认不会再自动开启注解处理；本仓库已在 Maven 构建中显式启用 Lombok 注解处理，因此可直接使用默认命令构建：
+  - `./mvnw -DskipTests package`
+  - `./mvnw -DskipTests install`
+- 后端启动方式：
+  - MCP Server：`java -jar mcp-server/target/mcp-server-0.0.1-SNAPSHOT.jar`
+  - 主服务：`java -jar bootstrap/target/bootstrap-0.0.1-SNAPSHOT.jar`
+- 主服务启动前请先准备外部依赖与必要环境变量：
+  - MySQL: `127.0.0.1:3306`
+  - Redis: `127.0.0.1:6379`
+  - Milvus: `127.0.0.1:19530`
+  - RustFS / S3 兼容存储: `127.0.0.1:9000`
+  - Ollama（如使用本地模型）: `127.0.0.1:11434`
+  - MCP Server: `127.0.0.1:9099`
+  - `RUSTFS_ACCESS_KEY_ID` / `RUSTFS_SECRET_ACCESS_KEY`
+
 ## 目录
 
 - [项目说明](#项目说明)
